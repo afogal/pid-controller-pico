@@ -82,7 +82,8 @@ def i2c_bytes(i2c_bus, outb, addr):
 
 
 def do_command(client, topic, message):
-    pass
+    #lcd_str(i2c_bus, message)
+    client.publish("pico/feeds/ack", "ACK")
 
 
 ##### Setup ############################
@@ -122,6 +123,9 @@ mqtt_client = MQTT.MQTT("192.168.0.103", username='pico', password='password', i
 #mqtt_client = MQTT.MQTT('io.adafruit.com', username='afogal', password='', is_ssl=False, port=1883)
 mqtt_client.on_message = do_command
 mqtt_client.connect()
+time.sleep(1)
+mqtt_client.subscribe("server/feeds/commands", qos=1)
+time.sleep(1)
 
 counter = 0
 t_last = time.monotonic_ns()
@@ -150,6 +154,8 @@ while True:
 
     
     time.sleep(0.01)
+
+
 
 
 
