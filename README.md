@@ -1,7 +1,5 @@
 # pid-controller-pico
 
----
-
 ## Setup
 
 ### Mosquitto (MQTT Broker)
@@ -30,6 +28,7 @@ Folders:
 * `adafruit_bus_device`
 * `adafruit_minimqtt`
 * `adafruit_wiznet5k`
+
 Files:
 * `adafruit_requests.mpy`
 
