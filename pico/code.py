@@ -122,7 +122,7 @@ time.sleep(1)
 mqtt_client = MQTT.MQTT("192.168.0.103", username='pico', password='password', is_ssl=False, port=5005)
 #mqtt_client = MQTT.MQTT('io.adafruit.com', username='afogal', password='', is_ssl=False, port=1883)
 mqtt_client.on_message = do_command
-mqtt_client.connect()
+mqtt_client.connect(clean_session=False)
 time.sleep(1)
 mqtt_client.subscribe("server/feeds/commands", qos=1)
 time.sleep(1)
