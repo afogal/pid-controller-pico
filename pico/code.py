@@ -6,6 +6,7 @@ from adafruit_wiznet5k.adafruit_wiznet5k import WIZNET5K
 import adafruit_wiznet5k.adafruit_wiznet5k_socket as socket
 from busio import I2C
 import adafruit_minimqtt.adafruit_minimqtt as MQTT
+import json
 
 ##### Constants ############################
 
@@ -83,8 +84,20 @@ def i2c_bytes(i2c_bus, outb, addr):
 
 def do_command(client, topic, message):
     #lcd_str(i2c_bus, message)
+    
+    jc = json.loads(message)
+    
+    if jc['command'] == "ping":
+        client.publish("pico/feeds/ack", "PONG")
+        
+    elif jc['command'] == "settemp":
+        set_temp(jc['temp'])
+    
+    # probably do something and then conditionally ack?
     client.publish("pico/feeds/ack", "ACK")
 
+def set_temp(new_temp):
+    pass
 
 ##### Setup ############################
 
@@ -122,7 +135,7 @@ time.sleep(1)
 mqtt_client = MQTT.MQTT("192.168.0.103", username='pico', password='password', is_ssl=False, port=5005)
 #mqtt_client = MQTT.MQTT('io.adafruit.com', username='afogal', password='', is_ssl=False, port=1883)
 mqtt_client.on_message = do_command
-mqtt_client.connect()
+mqtt_client.connect(clean_session=False)
 time.sleep(1)
 mqtt_client.subscribe("server/feeds/commands", qos=1)
 time.sleep(1)
