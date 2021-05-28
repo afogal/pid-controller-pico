@@ -1,5 +1,6 @@
 from mqtt_client import MQTTClient
 import time
+import json
 
 def recv(client, feed_id, payload):
     global acked
@@ -37,7 +38,7 @@ while True:
         time.sleep(1)
     except KeyboardInterrupt:
         command = input("Command: ")
-        client.publish("commands", command)
+        client.publish("commands", json.dumps({"command":command, "temp":0}))
         last = time.monotonic_ns()
         acked = False
 
