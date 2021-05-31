@@ -129,19 +129,25 @@ socket.set_interface(eth)
 space = ''.join([" " for i in range(8)])
 lcd_str(i2c_bus, f"INET OK {space}{eth.pretty_ip(eth.ip_address)}")
 
-eth._debug = True
+#eth._debug = True
 MQTT.set_socket(socket, eth)
 time.sleep(1)
 mqtt_client = MQTT.MQTT("192.168.0.103", username='pico', password='password', is_ssl=False, port=5005)
 #mqtt_client = MQTT.MQTT('io.adafruit.com', username='afogal', password='', is_ssl=False, port=1883)
 mqtt_client.on_message = do_command
-mqtt_client.connect(clean_session=False)
-time.sleep(1)
-mqtt_client.subscribe("server/feeds/commands", qos=1)
-time.sleep(1)
+
+try:
+    mqtt_client.connect(clean_session=False)
+    time.sleep(0.01)
+    mqtt_client.subscribe("server/feeds/commands", qos=1)
+    time.sleep(0.01)
+    conn = True
+except RuntimeError:
+    conn = False
 
 counter = 0
 t_last = time.monotonic_ns()
+t_conn = time.monotonic_ns()
 while True:
     t_curr = time.monotonic_ns()
     t_delta = t_curr - t_last
@@ -151,13 +157,26 @@ while True:
     if t_delta > 50e8:  # Half a second
         try: # I think this throws socket.timeout error
             mqtt_client.loop(timeout=0.01)
+            mqtt_client.publish('pico/feeds/therm', meas)
+            conn = True
         except:
-            pass
+            conn = False
+            
         led.value = not led.value
-        mqtt_client.publish('pico/feeds/therm', meas)
         #mqtt_client.publish('afogal/feeds/therm', meas)
         #sock_udp.sendto(b"Hello World!", ('192.168.0.255', REMOTE_PORT))
         t_last = t_curr
+        
+    if t_curr - t_conn > 300e8 and not conn: # 30s
+        try:
+            mqtt_client.connect(clean_session=False)
+            time.sleep(0.01)
+            mqtt_client.subscribe("server/feeds/commands", qos=1)
+            time.sleep(0.01)
+            conn = True
+            t_conn = t_curr
+        except:
+            conn = False
 
     voltage = counter & 511
     msg = voltage  >> 4
