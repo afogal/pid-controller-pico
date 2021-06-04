@@ -125,10 +125,6 @@ socket.set_interface(eth)
 # sock_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 # sock_udp.settimeout(0.1)
 
-# Display IP
-space = ''.join([" " for i in range(8)])
-lcd_str(i2c_bus, f"INET OK {space}{eth.pretty_ip(eth.ip_address)}")
-
 #eth._debug = True
 MQTT.set_socket(socket, eth)
 time.sleep(1)
@@ -142,8 +138,22 @@ try:
     mqtt_client.subscribe("server/feeds/commands", qos=1)
     time.sleep(0.01)
     conn = True
+    ethi = True
 except RuntimeError:
     conn = False
+    ethi = True
+except AssertionError: # no cable
+    conn = False
+    ethi = False
+
+# Display IP
+space = ''.join([" " for i in range(8)])
+if conn:
+    lcd_str(i2c_bus, f"INET OK {space}{eth.pretty_ip(eth.ip_address)}")
+elif ethi:
+    lcd_str(i2c_bus, "No Broker!")
+else:
+    lcd_str(i2c_bus, "No eth!")
 
 counter = 0
 t_last = time.monotonic_ns()
@@ -177,6 +187,7 @@ while True:
             t_conn = t_curr
         except:
             conn = False
+            t_conn = t_curr
 
     voltage = counter & 511
     msg = voltage  >> 4
@@ -186,6 +197,7 @@ while True:
 
     
     time.sleep(0.01)
+
 
 
 
