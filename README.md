@@ -2,6 +2,14 @@
 
 ## Setup
 
+### Command
+
+To install prerequisites:
+
+```sh 
+sudo pip3 -H install pyqt5 pyqtgraph
+```
+
 ### Mosquitto (MQTT Broker)
 
 Install mosquitto:
