@@ -40,6 +40,25 @@ The i2c bus is wired: pin 26 (GP20) - SDA, pin 27 (GP21) - SCL, and of course, g
 
 In order to program the pico, all you have to do is copy the code.py to the pico, and it will then run that code on boot. One can also install the Thonny editor or the Mu editor. To one can then set Thonny to "Micropython" and point it at the correct serial port (com4 for me) and then you get a REPL running on the pico!
 
+## Settings (defaultSettings dictionary)
+
+The meaning of each entry in the defaultSettings dicitonary is as follows:
+* `'setCurrent':0` (Amps) the amount of current to output
+* `'setTemp':25` (deg C) the current set temperature to hold
+* `'Kc': 10` (W/deg C)
+* `'Ti':100` (sec)
+* `'loadResist':5` (ohm) resistance of the load resistor
+* `'maxTemp':150` (deg C) max temperature of the load
+* `'maxCurr':2.5` (Amps) max current the load can withstand
+* `'maxResVolt':5` (Volt) voltage indicating max resistance
+* `'maxRes':13` (kohms) max resistance at max voltage
+* `'maxSuppCurrVolt':5` (Volt) the voltage signal that will cause max current from the supply
+* `'maxSuppCurr':2` (Amps) max current given by max voltage
+* `'thermBeta':3380` (kelvin) thermistor beta
+* `'thermR25':10` (kohm) resistance of thermistor at 25 degC
+* `'outputToggle':0` are we outputting?
+* `'filterHz':1` (Hz) block freqencies higher than this
+* `'period':16666667` (nsec) how often to update PID
 
 ## Notes:
 

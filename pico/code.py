@@ -7,6 +7,7 @@ import adafruit_wiznet5k.adafruit_wiznet5k_socket as socket
 from busio import I2C
 import adafruit_minimqtt.adafruit_minimqtt as MQTT
 import json
+import math
 
 ##### Constants ############################
 
@@ -42,6 +43,19 @@ ethernetRst.direction = digitalio.Direction.OUTPUT
 cs = digitalio.DigitalInOut(SPI1_CSn)
 spi_bus = busio.SPI(SPI1_SCK, MOSI=SPI1_TX, MISO=SPI1_RX)
 
+# Default settings (see README)
+defaultSettings = {'setCurrent':0, 'setTemp' : 25, 'Kc': 10, 'Ti':100, 'loadResist':5, 'maxTemp':150, 'maxCurr':2.5, 'maxResVolt':5, 'maxRes':13,
+                   'maxSuppCurrVolt':5, 'maxSuppCurr':2, 'thermBeta':3380, 'thermR25':10, 'outputToggle':0, 'filterHz':1, 'period':16666667,
+                   'constCurr':False, 'maxErrorLen':100 }
+
+# PID variables
+P_Signal = 0
+I_Signal = 0
+Erorr_Signal = 0
+TemperatureDetents = 10 # gives a resolution of 0.1 DegC
+CurrentDetents = 100 # gives a resolution of 0.01 A
+Error_Sample_Value = []
+Error_Sample_Time = []
 
 ##### Functions ############################
 
@@ -89,15 +103,24 @@ def do_command(client, topic, message):
     
     if jc['command'] == "ping":
         client.publish("pico/feeds/ack", "PONG")
-        
     elif jc['command'] == "settemp":
-        set_temp(jc['temp'])
+        defaultSettings['setTemp'] = floor(jc['temp'] * TemperatureDetents) / TemperatureDetents
+        I_Signal = defaultSettings['setCurrent'] * defaultSettings['setCurrent'] * defaultSettings['loadResist']
+        defaultSettings['constCurr'] = False
+    elif jc['command'] == "setcurr":
+        defaultSettings['setCurrent'] = floor(jc['curr'] * CurrentDetents) / CurrentDetents
+        defaultSettings['constCurr'] = True
+    elif jc['command'] == "toggle":
+        defaultSettings['outputToggle'] = not jc['toggle']
     
     # probably do something and then conditionally ack?
     client.publish("pico/feeds/ack", "ACK")
 
-def set_temp(new_temp):
-    pass
+def Kohm_to_Celsius (Thermistor_Resistance):
+    if (Thermistor_Resistance <= 0):
+   	    return 0
+    Celsius = (defaultSettings['thermBeta'] / (math.log(Thermistor_Resistance / defaultSettings['thermR25']) + defaultSettings['thermBeta'] / 298)) - 273
+    return Celsius
 
 ##### Setup ############################
 
@@ -156,25 +179,28 @@ else:
     lcd_str(i2c_bus, "No eth!")
 
 counter = 0
+Bad_Frame_Counter = 0
 t_last = time.monotonic_ns()
 t_conn = time.monotonic_ns()
+t_frame = time.monotonic_ns()
 while True:
+    
+    # time variables
     t_curr = time.monotonic_ns()
     t_delta = t_curr - t_last
-   
-    meas = 0
+    frame_duration = t_curr - t_frame
     
-    if t_delta > 50e8:  # Half a second
+    if t_delta > 50e8:  # 5 sec
         try: # I think this throws socket.timeout error
             mqtt_client.loop(timeout=0.01)
-            mqtt_client.publish('pico/feeds/therm', meas)
+            mqtt_client.publish('pico/feeds/state', json.dumps({"temp" :Actual_Temperature, "curr":Control_Signal_Amps, "state":defaultSettings }))
+            #mqtt_client.publish('pico/feeds/settings', json.dumps(defaultSettings))
             conn = True
         except:
             conn = False
             
         led.value = not led.value
         #mqtt_client.publish('afogal/feeds/therm', meas)
-        #sock_udp.sendto(b"Hello World!", ('192.168.0.255', REMOTE_PORT))
         t_last = t_curr
         
     if t_curr - t_conn > 300e8 and not conn: # 30s
@@ -188,17 +214,96 @@ while True:
         except:
             conn = False
             t_conn = t_curr
+            
+    if frame_duration >= defaultSettings['period']:
+        # read inputs:
+        supplyCurrVolt = 0
+        actResVolt = 0
 
-    voltage = counter & 511
-    msg = voltage  >> 4
-    msg = [ msg, (voltage & 15) << 4]
-    i2c_bytes(i2c_bus, msg, dac_addr)
-    counter += 1
+        # Get current state
+        Actual_Resistance = defaultSettings['maxRes'] * actResVolt / defaultSettings['maxResVolt']
+        if (Actual_Resistance == defaultSettings['thermR25']):
+            Actual_Temperature = 25
+        elif ((Actual_Resistance <= 0) or (Actual_Resistance > defaultSettings['maxRes'])):
+            Actual_Temperature = 0
+        else:
+            Actual_Temperature = Kohm_to_Celsius(Actual_Resistance)
 
-    
-    time.sleep(0.01)
+        Supply_Current = defaultSettings['maxSuppCurr'] * Supply_Current_Voltage / defaultSettings['maxSuppCurrVolt']
+
+        Error_Sample_Value.append(defaultSettings['setTemp'] - Actual_Temperature)
+        Error_Sample_Time.append(time.monotonic_ns())
+
+        # Now go through the list and add up the values with an exponential weighting function
+        Error_Signal = 0
+        Total_Weight = 0
+        for i in range(len(Error_Sample_Value)):
+            # find the time in seconds between when this data point was acquired, and present time
+            Relative_Time = (Error_Sample_Time[-1] - Error_Sample_Time[i]) / 1e9
+            Sample_Weight = math.exp(- Relative_Time / defaultSettings['filterHz'])
+            Error_Signal += Sample_Weight * Error_Sample_Value[i]
+        Total_Weight += Sample_Weight
+        Error_Signal /= Total_Weight
+
+        if (len(Error_Sample_Value) >= defaultSettings['maxErrorLen']):
+            del Error_Sample_Value[0]
+            del Error_Sample_Time[0]
 
 
+
+        if defaultSettings['constCurr']:
+            Control_Signal_Amps = defaultSettings['setCurrent'])
+        else: # PID stuff goes here
+            P_Signal = defaultSettings['Kc'] * Error_Signal
+            I_Signal += (defaultSettings['Kc'] / defaultSettings['Ti']) * Error_Signal * Frame_Duration
+
+            Control_Signal_Watts = P_Signal + I_Signal
+            if (Control_Signal_Watts < 0):
+                Control_Signal_Watts = 0
+
+            Control_Signal_Amps = sqrt(Control_Signal_Watts / defaultSettings['loadResist'])
+
+            if (Control_Signal_Amps > Settings.Max_Load_Current):
+                Control_Signal_Amps = defaultSettings['maxCurr']
+            if (Control_Signal_Amps > Settings.Max_Supply_Current):
+                Control_Signal_Amps = defaultSettings['maxSuppCurr']
+
+        # if the current being monitored is less than a half
+        # of the current control signal, then increment a counter.
+        # when this counter indicates that the actual current is so far from
+        # desired current for over ten frames, then turn off the output and
+        # print an error message.
+        if (defaultSettings['outputToggle'] and Control_Signal_Amps > 0):
+            if ((Supply_Current / Control_Signal_Amps < 0.5) or (Supply_Current / Control_Signal_Amps > 1.5)):
+                Bad_Frame_Counter += 1
+            else:
+                Bad_Frame_Counter = 0
+            if (Bad_Frame_Counter > 200):
+                Bad_Frame_Counter = 0
+                defaultSettings['outputToggle'] = 0
+                lcd_str(i2c_bus, "Current Error!")
+
+        # if the current signal is activated, and the temperature is within
+        # range such that we are allowed to apply a current, then output the
+        # current signal to the DAC
+        if ((Actual_Temperature > defaultSettings['maxTemp']) or ( not defaultSettings['outputToggle'])):
+           DAC_Output(0)
+           Control_Signal_Amps = 0
+        else:
+           DAC_Output(Control_Signal_Amps)
+
+        space = ''.join([" " for i in range(4)])
+        lcd_str(i2c_bus, f"Temp: {Actual_Temperature:06.2f}{space}Curr: {Control_Signal_Amps:05.2f}")
+        t_frame = time.monotonic_ns()
+
+    # voltage = counter & 255
+    # msg = voltage  >> 4
+    # msg = [ msg, (voltage & 15) << 4]
+    # i2c_bytes(i2c_bus, msg, dac_addr)
+    # counter += 1
+
+
+    #time.sleep(0.01)
 
 
 
