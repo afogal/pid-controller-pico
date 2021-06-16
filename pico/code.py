@@ -16,6 +16,8 @@ i2c_scl = board.GP21
 i2c_sda = board.GP20
 dac_addr = 0x60
 lcd_addr = 0x72
+adc1_addr = 0x48
+adc2_addr = 0x49
 
 # SPI bus stuff (eth)
 SPI1_SCK = board.GP10
