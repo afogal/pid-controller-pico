@@ -100,12 +100,12 @@ lcd_str(i2c_bus, "PID Temp Control V0.01")
 
 import adafruit_mcp4725
 dac = adafruit_mcp4725.MCP4725(i2c_bus, address=96)
-dac.raw_output = 2000
+dac.raw_output = 2000 # for whatever reason doesnt work, have to use .value
 
 ads = ADS.ADS1115(i2c_bus, address=adc_addr)
-curr_adc = AnalogIn(ads, ADS.P0)
-therm_adc = AnalogIn(ads, ADS.P1)
-ads.mode = Mode.CONTINUOUS
+curr_adc = AnalogIn(ads, ADS.P3)
+therm_adc = AnalogIn(ads, ADS.P0)
+#ads.mode = Mode.CONTINUOUS
 ads.data_rate = 860
 
 # First ADC channel read in continuous mode configures device
@@ -124,11 +124,11 @@ t_conn = time.monotonic_ns()
 # i2c_bytes(i2c_bus, msg, dac_addr)
 
 
+while True:
+    
+    lcd_str(i2c_bus, f"T_V: {therm_adc.voltage} C_V: {curr_adc.voltage}")
+    time.sleep(1)
 
-time.sleep(1)
-print(curr_adc.value, curr_adc.voltage, flush=True)
-print(therm_adc.value, therm_adc.voltage, flush=True)
-print("",flush=True)
 
 
 
