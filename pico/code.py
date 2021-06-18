@@ -8,6 +8,10 @@ from busio import I2C
 import adafruit_minimqtt.adafruit_minimqtt as MQTT
 import json
 import math
+import adafruit_mcp4725
+import adafruit_ads1x15.ads1115 as ADS
+from adafruit_ads1x15.ads1x15 import Mode
+from adafruit_ads1x15.analog_in import AnalogIn
 
 ##### Constants ############################
 
@@ -46,8 +50,8 @@ cs = digitalio.DigitalInOut(SPI1_CSn)
 spi_bus = busio.SPI(SPI1_SCK, MOSI=SPI1_TX, MISO=SPI1_RX)
 
 # Default settings (see README)
-defaultSettings = {'setCurrent':0, 'setTemp' : 25, 'Kc': 10, 'Ti':100, 'loadResist':5, 'maxTemp':150, 'maxCurr':2.5, 'maxResVolt':5, 'maxRes':13,
-                   'maxSuppCurrVolt':5, 'maxSuppCurr':2, 'thermBeta':3380, 'thermR25':10, 'outputToggle':0, 'filterHz':1, 'period':16666667,
+defaultSettings = {'setCurrent':0, 'setTemp' : 27, 'Kc': 10, 'Ti':100, 'loadResist':1, 'maxTemp':150, 'maxCurr':2.0, 'maxResVolt':5, 'maxRes':13,
+                   'maxSuppCurrVolt':5, 'maxSuppCurr':2, 'thermBeta':3380, 'thermR25':10, 'outputToggle':1, 'filterHz':1, 'period':16666667,
                    'constCurr':False, 'maxErrorLen':100 }
 
 # PID variables
@@ -120,7 +124,7 @@ def do_command(client, topic, message):
 
 def Kohm_to_Celsius (Thermistor_Resistance):
     if (Thermistor_Resistance <= 0):
-   	    return 0
+        return 0
     Celsius = (defaultSettings['thermBeta'] / (math.log(Thermistor_Resistance / defaultSettings['thermR25']) + defaultSettings['thermBeta'] / 298)) - 273
     return Celsius
 
@@ -133,6 +137,25 @@ lcd_str(i2c_bus, "PID Temp Control V0.01")
 time.sleep(1)
 lcd_clr(i2c_bus)
 
+# DAC and ADC setup
+dac = adafruit_mcp4725.MCP4725(i2c_bus, address=dac_addr)
+dac.value = 0
+time.sleep(0.01)
+ads = ADS.ADS1115(i2c_bus, address=adc1_addr)
+curr_adc = AnalogIn(ads, ADS.P3)
+therm_adc = AnalogIn(ads, ADS.P0)
+#ads.mode = Mode.CONTINUOUS
+ads.data_rate = 860 # Max rate is 860
+
+# ads2 = ADS.ADS1115(i2c_bus, address=adc2_addr)
+# curr_adc = AnalogIn(ads2, ADS.P0)
+# ads2.data_rate = 860
+
+# First ADC channel read in continuous mode configures device
+# and waits 2 conversion cycle
+_ = curr_adc.value
+_ = therm_adc.value
+
 # Reset W5500 first
 ethernetRst.value = False
 time.sleep(0.1)
@@ -143,18 +166,12 @@ eth = WIZNET5K(spi_bus, cs, is_dhcp=False, mac=MY_MAC)
 
 # Set network configuration
 eth.ifconfig = (IP_ADDRESS, SUBNET_MASK, GATEWAY_ADDRESS, DNS_SERVER)
-
-# Configure UDP
 socket.set_interface(eth)
-# sock_udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-# sock_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-# sock_udp.settimeout(0.1)
 
 #eth._debug = True
 MQTT.set_socket(socket, eth)
 time.sleep(1)
 mqtt_client = MQTT.MQTT("192.168.0.103", username='pico', password='password', is_ssl=False, port=5005)
-#mqtt_client = MQTT.MQTT('io.adafruit.com', username='afogal', password='', is_ssl=False, port=1883)
 mqtt_client.on_message = do_command
 
 try:
@@ -179,12 +196,15 @@ elif ethi:
     lcd_str(i2c_bus, "No Broker!")
 else:
     lcd_str(i2c_bus, "No eth!")
+time.sleep(0.5)
 
 counter = 0
 Bad_Frame_Counter = 0
+updateLcd = 1
 t_last = time.monotonic_ns()
 t_conn = time.monotonic_ns()
 t_frame = time.monotonic_ns()
+t_lcd = time.monotonic_ns()
 while True:
     
     # time variables
@@ -192,16 +212,18 @@ while True:
     t_delta = t_curr - t_last
     frame_duration = t_curr - t_frame
     
-    if t_delta > 50e8:  # 5 sec
+    if t_delta > 50e8 and conn:  # 5 sec
         try: # I think this throws socket.timeout error
             mqtt_client.loop(timeout=0.01)
             mqtt_client.publish('pico/feeds/state', json.dumps({"temp" :Actual_Temperature, "curr":Control_Signal_Amps, "state":defaultSettings }))
             #mqtt_client.publish('pico/feeds/settings', json.dumps(defaultSettings))
             conn = True
+            t_conn = t_curr
         except:
             conn = False
+            t_conn = t_curr
             
-        led.value = not led.value
+        #led.value = not led.value
         #mqtt_client.publish('afogal/feeds/therm', meas)
         t_last = t_curr
         
@@ -219,8 +241,8 @@ while True:
             
     if frame_duration >= defaultSettings['period']:
         # read inputs:
-        supplyCurrVolt = 0
-        actResVolt = 0
+        Supply_Current_Voltage = curr_adc.voltage
+        actResVolt = therm_adc.voltage
 
         # Get current state
         Actual_Resistance = defaultSettings['maxRes'] * actResVolt / defaultSettings['maxResVolt']
@@ -254,20 +276,20 @@ while True:
 
 
         if defaultSettings['constCurr']:
-            Control_Signal_Amps = defaultSettings['setCurrent'])
+            Control_Signal_Amps = defaultSettings['setCurrent']
         else: # PID stuff goes here
             P_Signal = defaultSettings['Kc'] * Error_Signal
-            I_Signal += (defaultSettings['Kc'] / defaultSettings['Ti']) * Error_Signal * Frame_Duration
+            I_Signal += (defaultSettings['Kc'] / defaultSettings['Ti']) * Error_Signal * frame_duration
 
             Control_Signal_Watts = P_Signal + I_Signal
             if (Control_Signal_Watts < 0):
                 Control_Signal_Watts = 0
 
-            Control_Signal_Amps = sqrt(Control_Signal_Watts / defaultSettings['loadResist'])
+            Control_Signal_Amps = math.sqrt(Control_Signal_Watts / defaultSettings['loadResist'])
 
-            if (Control_Signal_Amps > Settings.Max_Load_Current):
+            if (Control_Signal_Amps > defaultSettings['maxCurr']):
                 Control_Signal_Amps = defaultSettings['maxCurr']
-            if (Control_Signal_Amps > Settings.Max_Supply_Current):
+            if (Control_Signal_Amps > defaultSettings['maxSuppCurr']):
                 Control_Signal_Amps = defaultSettings['maxSuppCurr']
 
         # if the current being monitored is less than a half
@@ -283,29 +305,50 @@ while True:
             if (Bad_Frame_Counter > 200):
                 Bad_Frame_Counter = 0
                 defaultSettings['outputToggle'] = 0
-                lcd_str(i2c_bus, "Current Error!")
+                lcd_str(i2c_bus, "Current Error!  Output disabled.")
+                updateLcd = 0
+                dac.value = 0
+                Control_Signal_Amps = 0
 
         # if the current signal is activated, and the temperature is within
         # range such that we are allowed to apply a current, then output the
         # current signal to the DAC
         if ((Actual_Temperature > defaultSettings['maxTemp']) or ( not defaultSettings['outputToggle'])):
-           DAC_Output(0)
+           dac.value = 0
            Control_Signal_Amps = 0
         else:
-           DAC_Output(Control_Signal_Amps)
+            #print(Control_Signal_Amps)
+            #DAC_Output(Control_Signal_Amps)
+            vout = defaultSettings['maxSuppCurrVolt'] * Control_Signal_Amps / defaultSettings['maxSuppCurr']
+            raw_out = (vout * 65535 / 5)
+            if raw_out > 65535: raw_out = 65535
+            if raw_out < 0: raw_out = 0
+            dac.value = math.floor(raw_out)
+            time.sleep(1./1000.)
 
-        space = ''.join([" " for i in range(4)])
-        lcd_str(i2c_bus, f"Temp: {Actual_Temperature:06.2f}{space}Curr: {Control_Signal_Amps:05.2f}")
+
+        # update LCD
+        if t_curr - t_lcd > 10e8 and updateLcd:
+            space = ''.join([" " for i in range(3)])
+            lcd_str(i2c_bus, f"Temp: {Actual_Temperature:06.2f}{space}{defaultSettings['outputToggle']}Curr: {Control_Signal_Amps:05.2f}")
+            if not conn and not ethi :
+                lcd_str(i2c_bus, "   NC", clear=False) # no connection / no cable
+            elif not conn and ethi:
+                lcd_str(i2c_bus, "   NB", clear=False) # no broker
+                
+            t_lcd = t_curr
+            led.value = not led.value
+
+        
+        
         t_frame = time.monotonic_ns()
-
-    # voltage = counter & 255
-    # msg = voltage  >> 4
-    # msg = [ msg, (voltage & 15) << 4]
-    # i2c_bytes(i2c_bus, msg, dac_addr)
-    # counter += 1
+        
 
 
     #time.sleep(0.01)
+
+
+
 
 
 
