@@ -36,7 +36,7 @@ IP_ADDRESS = (192, 168, 0, 111)
 SUBNET_MASK = (255, 255, 255, 0)
 GATEWAY_ADDRESS = (192, 168, 0, 1)
 DNS_SERVER = (8, 8, 8, 8)
-REMOTE_IP = "192.168.0.118"
+REMOTE_IP = "192.168.0.100"
 REMOTE_PORT = 5005
 
 # Some pin setup
@@ -50,7 +50,7 @@ cs = digitalio.DigitalInOut(SPI1_CSn)
 spi_bus = busio.SPI(SPI1_SCK, MOSI=SPI1_TX, MISO=SPI1_RX)
 
 # Default settings (see README)
-defaultSettings = {'setCurrent':0, 'setTemp' : 27, 'Kc': 10, 'Ti':100, 'loadResist':1, 'maxTemp':150, 'maxCurr':2.0, 'maxResVolt':5, 'maxRes':13,
+defaultSettings = {'setCurrent':0, 'setTemp' : 35, 'Kc': 10, 'Ti':100, 'loadResist':1, 'maxTemp':150, 'maxCurr':2.0, 'maxResVolt':5, 'maxRes':13,
                    'maxSuppCurrVolt':5, 'maxSuppCurr':2, 'thermBeta':3380, 'thermR25':10, 'outputToggle':1, 'filterHz':1, 'period':16666667,
                    'constCurr':False, 'maxErrorLen':100 }
 
@@ -110,14 +110,14 @@ def do_command(client, topic, message):
     if jc['command'] == "ping":
         client.publish("pico/feeds/ack", "PONG")
     elif jc['command'] == "settemp":
-        defaultSettings['setTemp'] = floor(jc['temp'] * TemperatureDetents) / TemperatureDetents
+        defaultSettings['setTemp'] = math.floor(jc['temp'] * TemperatureDetents) / TemperatureDetents
         I_Signal = defaultSettings['setCurrent'] * defaultSettings['setCurrent'] * defaultSettings['loadResist']
         defaultSettings['constCurr'] = False
     elif jc['command'] == "setcurr":
-        defaultSettings['setCurrent'] = floor(jc['curr'] * CurrentDetents) / CurrentDetents
+        defaultSettings['setCurrent'] = math.floor(jc['curr'] * CurrentDetents) / CurrentDetents
         defaultSettings['constCurr'] = True
-    elif jc['command'] == "toggle":
-        defaultSettings['outputToggle'] = not jc['toggle']
+    elif jc['command'] == "toggleOutput":
+        defaultSettings['outputToggle'] = not defaultSettings['outputToggle'] #jc['toggle']
     
     # probably do something and then conditionally ack?
     client.publish("pico/feeds/ack", "ACK")
@@ -171,7 +171,7 @@ socket.set_interface(eth)
 #eth._debug = True
 MQTT.set_socket(socket, eth)
 time.sleep(1)
-mqtt_client = MQTT.MQTT("192.168.0.103", username='pico', password='password', is_ssl=False, port=5005)
+mqtt_client = MQTT.MQTT("192.168.0.100", username='pico', password='password', is_ssl=False, port=5005, keep_alive=5)
 mqtt_client.on_message = do_command
 
 try:
@@ -218,9 +218,15 @@ while True:
             mqtt_client.publish('pico/feeds/state', json.dumps({"temp" :Actual_Temperature, "curr":Control_Signal_Amps, "state":defaultSettings }))
             #mqtt_client.publish('pico/feeds/settings', json.dumps(defaultSettings))
             conn = True
+            ethi = True
             t_conn = t_curr
-        except:
+        except MQTT.MMQTTException:
             conn = False
+            ethi = True
+            t_conn = t_curr
+        except AssertionError: # no cable
+            conn = False
+            ethi = False
             t_conn = t_curr
             
         #led.value = not led.value
@@ -234,9 +240,15 @@ while True:
             mqtt_client.subscribe("server/feeds/commands", qos=1)
             time.sleep(0.01)
             conn = True
+            ethi = True
             t_conn = t_curr
-        except:
+        except RuntimeError:
             conn = False
+            ethi = True
+            t_conn = t_curr
+        except AssertionError: # no cable
+            conn = False
+            ethi = False
             t_conn = t_curr
             
     if frame_duration >= defaultSettings['period']:
@@ -330,7 +342,8 @@ while True:
         # update LCD
         if t_curr - t_lcd > 10e8 and updateLcd:
             space = ''.join([" " for i in range(3)])
-            lcd_str(i2c_bus, f"Temp: {Actual_Temperature:06.2f}{space}{defaultSettings['outputToggle']}Curr: {Control_Signal_Amps:05.2f}")
+            tog = 1 if defaultSettings['outputToggle'] else 0
+            lcd_str(i2c_bus, f"Temp: {Actual_Temperature:06.2f}{space}{tog}Curr: {Control_Signal_Amps:05.2f}")
             if not conn and not ethi :
                 lcd_str(i2c_bus, "   NC", clear=False) # no connection / no cable
             elif not conn and ethi:

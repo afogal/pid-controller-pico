@@ -70,5 +70,7 @@ The meaning of each entry in the defaultSettings dicitonary is as follows:
 
 ## Notes:
 
-* printing (which prints to serial) puts a lot of delay
+* printing (which prints to serial) puts a lot of delay (and sometimes doesnt work at all)
 * you might have to reconfigure the IP and gatway of the pico depending on network architecture. Run `ipconfig` on windows or `ip addr` on linux to find the relevant details
+* the MQTT client keep\_alive is (for some really dumb reason) used as the default pingresp timeout, which means you either flood the broker with ping requests or you wait forever (with no PID processing in the meantime) if the broker ever goes down. I thought 5 seconds would be a fair tradeoff. Even worse: keep\_alive is used as the default recieving timeout, so we can't set it extremely low either. I thought it would be better not to edit and recompile the adafruit library to remedy this, but if desired it would be quite easy.
+* for whatever reason, soemtimes the ADC reads anything greater than 4.1V as exactly 4.1V, I think this is a referencing issue, but it doesn't always come up. This corresponds to a current of 1.64A.
