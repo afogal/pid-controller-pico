@@ -54,6 +54,16 @@ defaultSettings = {'setCurrent':0, 'setTemp' : 35, 'Kc': 10, 'Ti':100, 'loadResi
                    'maxSuppCurrVolt':5, 'maxSuppCurr':2, 'thermBeta':3380, 'thermR25':10, 'outputToggle':1, 'filterHz':1, 'period':16666667,
                    'constCurr':False, 'maxErrorLen':100 }
 
+# Attempt to load last used settings
+try:
+    with open('settings.json', 'r') as settings_file:
+        defaultSettings = json.load(settings_file)
+except:
+    pass
+
+# Always start disabled
+defaultSettings['outputToggle'] = False
+
 # PID variables
 P_Signal = 0
 I_Signal = 0
@@ -113,9 +123,11 @@ def do_command(client, topic, message):
         defaultSettings['setTemp'] = math.floor(jc['temp'] * TemperatureDetents) / TemperatureDetents
         I_Signal = defaultSettings['setCurrent'] * defaultSettings['setCurrent'] * defaultSettings['loadResist']
         defaultSettings['constCurr'] = False
+        saveSettings()
     elif jc['command'] == "setcurr":
         defaultSettings['setCurrent'] = math.floor(jc['curr'] * CurrentDetents) / CurrentDetents
         defaultSettings['constCurr'] = True
+        saveSettings()
     elif jc['command'] == "toggleOutput":
         defaultSettings['outputToggle'] = not defaultSettings['outputToggle'] #jc['toggle']
     
@@ -127,6 +139,13 @@ def Kohm_to_Celsius (Thermistor_Resistance):
         return 0
     Celsius = (defaultSettings['thermBeta'] / (math.log(Thermistor_Resistance / defaultSettings['thermR25']) + defaultSettings['thermBeta'] / 298)) - 273
     return Celsius
+
+def saveSettings():
+    try:
+        with open("settings.json", "w") as outfile:
+            json.dump(defaultSettings, outfile)
+    except:
+        pass
 
 ##### Setup ############################
 
@@ -144,7 +163,7 @@ time.sleep(0.01)
 ads = ADS.ADS1115(i2c_bus, address=adc1_addr)
 curr_adc = AnalogIn(ads, ADS.P3)
 therm_adc = AnalogIn(ads, ADS.P0)
-#ads.mode = Mode.CONTINUOUS
+#ads.mode = Mode.CONTINUOUS # This breaks everything
 ads.data_rate = 860 # Max rate is 860
 
 # ads2 = ADS.ADS1115(i2c_bus, address=adc2_addr)
