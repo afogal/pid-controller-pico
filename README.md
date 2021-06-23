@@ -36,15 +36,19 @@ Folders:
 * `adafruit_bus_device`
 * `adafruit_minimqtt`
 * `adafruit_wiznet5k`
+* `adafruit_ads1x15`
 
 Files:
 * `adafruit_requests.mpy`
+* `adafruit_mcp4725.mpy`
 
 As for wiring, the ethernet is wired as follows:
 
 ![eth wiring](docs/eth_wiring.png)
 
 The i2c bus is wired: pin 26 (GP20) - SDA, pin 27 (GP21) - SCL, and of course, ground to ground and 3v3 to 3v3.
+
+See also: [Schematic](docs/schematic.pdf) and [PCB Layout](docs/pcb.pdf).
 
 In order to program the pico, all you have to do is copy the code.py to the pico, and it will then run that code on boot. One can also install the Thonny editor or the Mu editor. To one can then set Thonny to "Micropython" and point it at the correct serial port (com4 for me) and then you get a REPL running on the pico!
 
@@ -73,4 +77,4 @@ The meaning of each entry in the defaultSettings dicitonary is as follows:
 * printing (which prints to serial) puts a lot of delay (and sometimes doesnt work at all)
 * you might have to reconfigure the IP and gatway of the pico depending on network architecture. Run `ipconfig` on windows or `ip addr` on linux to find the relevant details
 * the MQTT client keep\_alive is (for some really dumb reason) used as the default pingresp timeout, which means you either flood the broker with ping requests or you wait forever (with no PID processing in the meantime) if the broker ever goes down. I thought 5 seconds would be a fair tradeoff. Even worse: keep\_alive is used as the default recieving timeout, so we can't set it extremely low either. I thought it would be better not to edit and recompile the adafruit library to remedy this, but if desired it would be quite easy.
-* for whatever reason, soemtimes the ADC reads anything greater than 4.1V as exactly 4.1V, I think this is a referencing issue, but it doesn't always come up. This corresponds to a current of 1.64A.
+* for whatever reason, *sometimes* the ADC reads anything greater than 4.1V as exactly 4.1V, I think this is a referencing issue, but it doesn't always come up. This corresponds to a current of 1.64A.
