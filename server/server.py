@@ -42,6 +42,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.curr_graph.addLegend()
         self.curr_graph.showGrid(x=True, y=True)
 
+        # MQTT label
         self.mqtt_label = QLabel('MQTT:', parent=self)
         self.mqtt_label.move(650, 450)
         self.mqtt_label.resize(220,80)
@@ -50,12 +51,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.mqtt_label.setFont(font)
         self.mqtt_label.show()
 
+        # MQTT message box
         self.text = QPlainTextEdit(parent=self)
         self.text.move(650, 520)
         self.text.resize(600,300)
         self.text.show()
         self.text.setReadOnly(True)
 
+        # set temperature input box
         self.temp_send = QLineEdit(parent=self)
         self.temp_send.move(20, 520)
         self.temp_send.resize(60, 50)
@@ -64,6 +67,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.temp_send.setFont(font)
         self.temp_send.show()
 
+        # set current input box
         self.curr_send = QLineEdit(parent=self)
         self.curr_send.move(20, 570)
         self.curr_send.resize(60, 50)
@@ -72,6 +76,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.curr_send.setFont(font)
         self.curr_send.show()
 
+        # command label
         self.command_label = QLabel('Commands:', parent=self)
         self.command_label.move(20, 450)
         self.command_label.resize(220,80)
@@ -80,6 +85,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.command_label.setFont(font)
         self.command_label.show()
 
+        # set temp button
         self.temp_send_btn = QPushButton("Set Temp", parent=self)
         self.temp_send_btn.move(90, 520)
         self.temp_send_btn.resize(120, 50)
@@ -89,6 +95,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.temp_send_btn.show()
         self.temp_send_btn.clicked.connect(self.settemp)
 
+        # set current button
         self.curr_send_btn = QPushButton("Set Curr", parent=self)
         self.curr_send_btn.move(90, 570)
         self.curr_send_btn.resize(120, 50)
@@ -98,6 +105,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.curr_send_btn.show()
         self.curr_send_btn.clicked.connect(self.setcurr)
 
+        # toggle output button
         self.toggle_btn = QPushButton("Toggle Out", parent=self)
         self.toggle_btn.move(60, 620)
         self.toggle_btn.resize(150, 50)
@@ -107,6 +115,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.toggle_btn.show()
         self.toggle_btn.clicked.connect(self.toggle)
 
+        # ack is green when acked, else red
         self.ack_led = QLabel("",parent=self)
         self.ack_led.move(20, 670)
         self.ack_led.resize(30,30)
@@ -119,6 +128,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ack_led.setScaledContents(True)
         self.ack_led.show()
 
+        # ack label
         self.ack_label = QLabel('Command Acked', parent=self)
         self.ack_label.move(60, 660)
         self.ack_label.resize(400, 50)
@@ -127,6 +137,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ack_label.setFont(font)
         self.ack_label.show()
 
+        # green when outputting current, red else
         self.toggle_led = QLabel("",parent=self)
         self.toggle_led.move(20, 620)
         self.toggle_led.resize(30,30)
@@ -145,6 +156,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.outputToggle = 1
         self.init_mqtt()
 
+        # lists for the plot
         self.therm_data = []
         self.therm_set_data = []
         self.curr_data =[]
@@ -158,6 +170,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.curr = self.plot(self.curr_graph, self.time, self.curr_data, "pico", "r")
         self.curr_set = self.plot(self.curr_graph, self.time, self.curr_set_data, "set", "k")
 
+    # basically just a plotting macro to use the right pens and colors
     def plot(self, graph, x, y, name, color):
         if name == "set":
             pen = pg.mkPen(color=color, width=4, style=QtCore.Qt.DotLine)
@@ -166,6 +179,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         return graph.plot(x, y, name=name, pen=pen)
 
+    # init mqtt, subscribe to relevant feeds
     def init_mqtt(self):
         self.client = MQTTClient("server", "password", service_host="192.168.0.100", secure=False, port=5005)
         self.client.on_message = self.recv
@@ -182,16 +196,25 @@ class MainWindow(QtWidgets.QMainWindow):
         time.sleep(0.5)
 
         # this causees a race condition with the textbox that causes a segfault
+        # kinda annoying but that's threading for you
         #self.client.loop_background()
 
+        # runs a function every time the timer goes off
         self.timer = QtCore.QTimer()
         self.timer.setInterval(200)
         self.timer.timeout.connect(self.poll)
         self.timer.start()
 
+    # run every time we recieve a MQTT message
     def recv(self, client, feed_id, payload):
         self.append_line(f"Got message from {feed_id}")
 
+        # log all mqtt messages
+        with open("mqtt_log.txt", "a") as logfile:
+            now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f") #time.time()
+            logfile.write(f"{now}: client: {client} feed id: {feed_id} payload: {payload}")
+
+        # parse acks or update graphs
         if feed_id == "ack" and payload == "ACK":
             self.acked = True
             self.ack_time = time.time()
@@ -204,11 +227,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.curr_set_data.append(state['state']['setCurrent'])
             self.time.append(time.time())
 
-
             self.outputToggle = state['state']['outputToggle']     
             self.constCurr = state['state']['constCurr']
-
-            # log these probably here
 
             self.therm.setData(self.time, self.therm_data)
             self.therm_set.setData(self.time, self.therm_set_data)
@@ -219,13 +239,15 @@ class MainWindow(QtWidgets.QMainWindow):
             self.curr_graph.setXRange(t-600, t+10, padding=0)
             #print("fully recv")
 
+    # add a new line to the bottom of the textbox
     def append_line(self, line):
         new = '\n' + line
         self.text.insertPlainText(new)
 
+    # polling function run on timer
     def poll(self):
-        # this function is run on a timer
-        self.client.loop(timeout_sec=0.1)
+        # check for mqtt messages
+        self.client.loop(timeout_sec=0.5)
 
         # check that commands are acknowledged
         td = time.time() - self.ack_time
@@ -245,7 +267,7 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             self.toggle_led.setPixmap(QtGui.QPixmap("icons/red-led-on.png"))
 
-
+    # bound to set temperature button
     def settemp(self):
         try:
             temp = float(self.temp_send.text())

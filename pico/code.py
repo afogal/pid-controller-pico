@@ -15,7 +15,7 @@ from adafruit_ads1x15.analog_in import AnalogIn
 
 ##### Constants ############################
 
-# I2C bus stuff (dac/lcd)
+# I2C bus stuff (dac/lcd/adc)
 i2c_scl = board.GP21
 i2c_sda = board.GP20
 dac_addr = 0x60
@@ -111,12 +111,14 @@ def i2c_bytes(i2c_bus, outb, addr):
     finally:
         i2c_bus.unlock()
 
-
+# Run automatically when an MQTT message is received
 def do_command(client, topic, message):
     #lcd_str(i2c_bus, message)
-    
+
+    # parse the json
     jc = json.loads(message)
-    
+
+    # parse what we're supposed to actually do
     if jc['command'] == "ping":
         client.publish("pico/feeds/ack", "PONG")
     elif jc['command'] == "settemp":
@@ -134,12 +136,14 @@ def do_command(client, topic, message):
     # probably do something and then conditionally ack?
     client.publish("pico/feeds/ack", "ACK")
 
+# Convert resistance to degrees celsius
 def Kohm_to_Celsius (Thermistor_Resistance):
     if (Thermistor_Resistance <= 0):
         return 0
     Celsius = (defaultSettings['thermBeta'] / (math.log(Thermistor_Resistance / defaultSettings['thermR25']) + defaultSettings['thermBeta'] / 298)) - 273
     return Celsius
 
+# save current settings dictionary as json
 def saveSettings():
     try:
         with open("settings.json", "w") as outfile:
@@ -166,6 +170,7 @@ therm_adc = AnalogIn(ads, ADS.P0)
 #ads.mode = Mode.CONTINUOUS # This breaks everything
 ads.data_rate = 860 # Max rate is 860
 
+# second ADC
 # ads2 = ADS.ADS1115(i2c_bus, address=adc2_addr)
 # curr_adc = AnalogIn(ads2, ADS.P0)
 # ads2.data_rate = 860
@@ -175,7 +180,7 @@ ads.data_rate = 860 # Max rate is 860
 _ = curr_adc.value
 _ = therm_adc.value
 
-# Reset W5500 first
+# Reset W5500
 ethernetRst.value = False
 time.sleep(0.1)
 ethernetRst.value = True
@@ -187,12 +192,13 @@ eth = WIZNET5K(spi_bus, cs, is_dhcp=False, mac=MY_MAC)
 eth.ifconfig = (IP_ADDRESS, SUBNET_MASK, GATEWAY_ADDRESS, DNS_SERVER)
 socket.set_interface(eth)
 
-#eth._debug = True
+#eth._debug = True # useful for debugging
 MQTT.set_socket(socket, eth)
 time.sleep(1)
 mqtt_client = MQTT.MQTT("192.168.0.100", username='pico', password='password', is_ssl=False, port=5005, keep_alive=5)
 mqtt_client.on_message = do_command
 
+# attempt to connect and subscribe
 try:
     mqtt_client.connect(clean_session=False)
     time.sleep(0.01)
@@ -200,14 +206,14 @@ try:
     time.sleep(0.01)
     conn = True
     ethi = True
-except RuntimeError:
+except RuntimeError: # broker not online
     conn = False
     ethi = True
 except AssertionError: # no cable
     conn = False
     ethi = False
 
-# Display IP
+# Display IP if everything ok
 space = ''.join([" " for i in range(8)])
 if conn:
     lcd_str(i2c_bus, f"INET OK {space}{eth.pretty_ip(eth.ip_address)}")
@@ -217,6 +223,7 @@ else:
     lcd_str(i2c_bus, "No eth!")
 time.sleep(0.5)
 
+# some more variables
 counter = 0
 Bad_Frame_Counter = 0
 updateLcd = 1
@@ -232,14 +239,13 @@ while True:
     frame_duration = t_curr - t_frame
     
     if t_delta > 50e8 and conn:  # 5 sec
-        try: # I think this throws socket.timeout error
+        try: # I think this throws socket.timeout error?
             mqtt_client.loop(timeout=0.01)
             mqtt_client.publish('pico/feeds/state', json.dumps({"temp" :Actual_Temperature, "curr":Control_Signal_Amps, "state":defaultSettings }))
-            #mqtt_client.publish('pico/feeds/settings', json.dumps(defaultSettings))
             conn = True
             ethi = True
             t_conn = t_curr
-        except MQTT.MMQTTException:
+        except MQTT.MMQTTException: # broker offline
             conn = False
             ethi = True
             t_conn = t_curr
@@ -247,11 +253,10 @@ while True:
             conn = False
             ethi = False
             t_conn = t_curr
-            
-        #led.value = not led.value
-        #mqtt_client.publish('afogal/feeds/therm', meas)
+
         t_last = t_curr
-        
+
+    # retries connection after 30 seconds, can be slow
     if t_curr - t_conn > 300e8 and not conn: # 30s
         try:
             mqtt_client.connect(clean_session=False)
@@ -261,7 +266,7 @@ while True:
             conn = True
             ethi = True
             t_conn = t_curr
-        except RuntimeError:
+        except RuntimeError: # broker offline
             conn = False
             ethi = True
             t_conn = t_curr
@@ -269,7 +274,8 @@ while True:
             conn = False
             ethi = False
             t_conn = t_curr
-            
+
+    # the meat and potatoes
     if frame_duration >= defaultSettings['period']:
         # read inputs:
         Supply_Current_Voltage = curr_adc.voltage
@@ -300,11 +306,10 @@ while True:
         Total_Weight += Sample_Weight
         Error_Signal /= Total_Weight
 
+        # a moving error sample
         if (len(Error_Sample_Value) >= defaultSettings['maxErrorLen']):
             del Error_Sample_Value[0]
             del Error_Sample_Time[0]
-
-
 
         if defaultSettings['constCurr']:
             Control_Signal_Amps = defaultSettings['setCurrent']
@@ -348,8 +353,6 @@ while True:
            dac.value = 0
            Control_Signal_Amps = 0
         else:
-            #print(Control_Signal_Amps)
-            #DAC_Output(Control_Signal_Amps)
             vout = defaultSettings['maxSuppCurrVolt'] * Control_Signal_Amps / defaultSettings['maxSuppCurr']
             raw_out = (vout * 65535 / 5)
             if raw_out > 65535: raw_out = 65535
@@ -357,9 +360,8 @@ while True:
             dac.value = math.floor(raw_out)
             time.sleep(1./1000.)
 
-
         # update LCD
-        if t_curr - t_lcd > 10e8 and updateLcd:
+        if t_curr - t_lcd > 10e8 and updateLcd: # update once per second
             space = ''.join([" " for i in range(3)])
             tog = 1 if defaultSettings['outputToggle'] else 0
             lcd_str(i2c_bus, f"Temp: {Actual_Temperature:06.2f}{space}{tog}Curr: {Control_Signal_Amps:05.2f}")
