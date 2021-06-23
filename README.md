@@ -72,6 +72,15 @@ The meaning of each entry in the defaultSettings dicitonary is as follows:
 * `'filterHz':1` (Hz) block freqencies higher than this
 * `'period':16666667` (nsec) how often to update PID
 
+## User Interface:
+
+![screen](docs/screen.jpg)
+
+## Control UI:
+
+Coming soon!
+
+
 ## Notes:
 
 * printing (which prints to serial) puts a lot of delay (and sometimes doesnt work at all)
