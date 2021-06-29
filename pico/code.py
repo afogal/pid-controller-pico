@@ -240,7 +240,7 @@ while True:
     
     if t_delta > 50e8 and conn:  # 5 sec
         try: # I think this throws socket.timeout error?
-            mqtt_client.loop(timeout=0.01)
+            mqtt_client.loop(timeout=0.01) # poll for commands here
             mqtt_client.publish('pico/feeds/state', json.dumps({"temp" :Actual_Temperature, "curr":Control_Signal_Amps, "state":defaultSettings }))
             conn = True
             ethi = True
