@@ -15,7 +15,7 @@ from adafruit_ads1x15.analog_in import AnalogIn
 
 ##### Constants ############################
 
-# I2C bus stuff (dac/lcd)
+# I2C bus stuff (dac/lcd/adc)
 i2c_scl = board.GP21
 i2c_sda = board.GP20
 dac_addr = 0x60
@@ -50,9 +50,17 @@ cs = digitalio.DigitalInOut(SPI1_CSn)
 spi_bus = busio.SPI(SPI1_SCK, MOSI=SPI1_TX, MISO=SPI1_RX)
 
 # Default settings (see README)
-defaultSettings = {'setCurrent':0, 'setTemp' : 35, 'Kc': 10, 'Ti':100, 'loadResist':1, 'maxTemp':150, 'maxCurr':2.0, 'maxResVolt':5, 'maxRes':13,
+defaultSettings = {'setCurrent':0, 'setTemp' : 31, 'Kc': 10, 'Ti':100, 'loadResist':1, 'maxTemp':150, 'maxCurr':2.0, 'maxResVolt':5, 'maxRes':13,
                    'maxSuppCurrVolt':5, 'maxSuppCurr':2, 'thermBeta':3380, 'thermR25':10, 'outputToggle':1, 'filterHz':1, 'period':16666667,
                    'constCurr':False, 'maxErrorLen':100 }
+# Attempt to load last used settings
+try:
+    with open('settings.json', 'r') as settings_file:
+        defaultSettings = json.load(settings_file)
+        loaded = True
+except:
+    loaded = False
+    
 
 # PID variables
 P_Signal = 0
@@ -102,6 +110,7 @@ def i2c_bytes(i2c_bus, outb, addr):
         i2c_bus.unlock()
 
 
+# Run automatically when an MQTT message is recieved
 def do_command(client, topic, message):
     #lcd_str(i2c_bus, message)
     
@@ -113,12 +122,15 @@ def do_command(client, topic, message):
         defaultSettings['setTemp'] = math.floor(jc['temp'] * TemperatureDetents) / TemperatureDetents
         I_Signal = defaultSettings['setCurrent'] * defaultSettings['setCurrent'] * defaultSettings['loadResist']
         defaultSettings['constCurr'] = False
+        saveSettings()
     elif jc['command'] == "setcurr":
         defaultSettings['setCurrent'] = math.floor(jc['curr'] * CurrentDetents) / CurrentDetents
         defaultSettings['constCurr'] = True
+        saveSettings()
     elif jc['command'] == "toggleOutput":
         defaultSettings['outputToggle'] = not defaultSettings['outputToggle'] #jc['toggle']
-    
+        saveSettings()
+        
     # probably do something and then conditionally ack?
     client.publish("pico/feeds/ack", "ACK")
 
@@ -127,6 +139,14 @@ def Kohm_to_Celsius (Thermistor_Resistance):
         return 0
     Celsius = (defaultSettings['thermBeta'] / (math.log(Thermistor_Resistance / defaultSettings['thermR25']) + defaultSettings['thermBeta'] / 298)) - 273
     return Celsius
+    
+    
+def saveSettings():
+    try:
+        with open("settings.json", "w") as outfile:
+            json.dump(defaultSettings, outfile)
+    except:
+        pass
 
 ##### Setup ############################
 
@@ -144,7 +164,7 @@ time.sleep(0.01)
 ads = ADS.ADS1115(i2c_bus, address=adc1_addr)
 curr_adc = AnalogIn(ads, ADS.P3)
 therm_adc = AnalogIn(ads, ADS.P0)
-#ads.mode = Mode.CONTINUOUS
+#ads.mode = Mode.CONTINUOUS # this breaks everything
 ads.data_rate = 860 # Max rate is 860
 
 # ads2 = ADS.ADS1115(i2c_bus, address=adc2_addr)
@@ -181,14 +201,14 @@ try:
     time.sleep(0.01)
     conn = True
     ethi = True
-except RuntimeError:
+except RuntimeError: # broker not online
     conn = False
     ethi = True
 except AssertionError: # no cable
     conn = False
     ethi = False
 
-# Display IP
+# Display IP if everything ok
 space = ''.join([" " for i in range(8)])
 if conn:
     lcd_str(i2c_bus, f"INET OK {space}{eth.pretty_ip(eth.ip_address)}")
@@ -196,6 +216,12 @@ elif ethi:
     lcd_str(i2c_bus, "No Broker!")
 else:
     lcd_str(i2c_bus, "No eth!")
+time.sleep(0.5)
+
+if loaded:
+    lcd_str(i2c_bus, "Loaded Last Settings")
+else:
+    lcd_str(i2c_bus, "Didn't load last settings")
 time.sleep(0.5)
 
 counter = 0
@@ -214,13 +240,12 @@ while True:
     
     if t_delta > 50e8 and conn:  # 5 sec
         try: # I think this throws socket.timeout error
-            mqtt_client.loop(timeout=0.01)
+            mqtt_client.loop(timeout=0.01) # polling for commands
             mqtt_client.publish('pico/feeds/state', json.dumps({"temp" :Actual_Temperature, "curr":Control_Signal_Amps, "state":defaultSettings }))
-            #mqtt_client.publish('pico/feeds/settings', json.dumps(defaultSettings))
             conn = True
             ethi = True
             t_conn = t_curr
-        except MQTT.MMQTTException:
+        except MQTT.MMQTTException: # broker offline
             conn = False
             ethi = True
             t_conn = t_curr
@@ -229,10 +254,9 @@ while True:
             ethi = False
             t_conn = t_curr
             
-        #led.value = not led.value
-        #mqtt_client.publish('afogal/feeds/therm', meas)
         t_last = t_curr
         
+    # retries connection every 30s, can take a very long time
     if t_curr - t_conn > 300e8 and not conn: # 30s
         try:
             mqtt_client.connect(clean_session=False)
@@ -242,7 +266,7 @@ while True:
             conn = True
             ethi = True
             t_conn = t_curr
-        except RuntimeError:
+        except RuntimeError: # broker offline
             conn = False
             ethi = True
             t_conn = t_curr
@@ -281,7 +305,7 @@ while True:
             Relative_Time = (Error_Sample_Time[-1] - Error_Sample_Time[i]) / 1e9
             Sample_Weight = math.exp(- Relative_Time / defaultSettings['filterHz'])
             Error_Signal += Sample_Weight * Error_Sample_Value[i]
-        Total_Weight += Sample_Weight
+            Total_Weight += Sample_Weight
         Error_Signal /= Total_Weight
 
         if (len(Error_Sample_Value) >= defaultSettings['maxErrorLen']):
@@ -332,8 +356,6 @@ while True:
            dac.value = 0
            Control_Signal_Amps = 0
         else:
-            #print(Control_Signal_Amps)
-            #DAC_Output(Control_Signal_Amps)
             vout = defaultSettings['maxSuppCurrVolt'] * Control_Signal_Amps / defaultSettings['maxSuppCurr']
             raw_out = (vout * 65535 / 5)
             if raw_out > 65535: raw_out = 65535
@@ -343,7 +365,7 @@ while True:
 
 
         # update LCD
-        if t_curr - t_lcd > 10e8 and updateLcd:
+        if t_curr - t_lcd > 10e8 and updateLcd: #update once per second
             space = ''.join([" " for i in range(3)])
             tog = 1 if defaultSettings['outputToggle'] else 0
             #lcd_str(i2c_bus, f"Temp: {actResVolt} {tog}Curr: {Supply_Current_Voltage:05.2f}")
@@ -363,6 +385,7 @@ while True:
 
 
     #time.sleep(0.01)
+
 
 
 
