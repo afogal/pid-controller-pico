@@ -221,6 +221,10 @@ class MainWindow(QtWidgets.QMainWindow):
         elif feed_id == "state":
             state = json.loads(payload)
 
+
+            with open("data.csv", 'a') as outfile:
+                outfile.write(f"{time.time()},{state['curr']},{state['temp']},{state['state']['setCurrent']},{state['state']['setTemp']}\n")
+
             self.therm_data.append(state['temp'])
             self.curr_data.append(state['curr'])
             self.therm_set_data.append(state['state']['setTemp'])
