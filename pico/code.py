@@ -12,6 +12,7 @@ import adafruit_mcp4725
 import adafruit_ads1x15.ads1115 as ADS
 from adafruit_ads1x15.ads1x15 import Mode
 from adafruit_ads1x15.analog_in import AnalogIn
+from adafruit_bus_device.i2c_device import I2CDevice
 
 ##### Constants ############################
 
@@ -50,7 +51,7 @@ cs = digitalio.DigitalInOut(SPI1_CSn)
 spi_bus = busio.SPI(SPI1_SCK, MOSI=SPI1_TX, MISO=SPI1_RX)
 
 # Default settings (see README)
-defaultSettings = {'setCurrent':0, 'setTemp' : 31, 'Kc': 10, 'Ti':100, 'loadResist':1, 'maxTemp':150, 'maxCurr':2.0, 'maxResVolt':5, 'maxRes':13,
+defaultSettings = {'setCurrent':0, 'setTemp' : 33, 'Kc': 16, 'Ti':1000000000000, 'Td':0, 'I_max':4, 'loadResist':1, 'maxTemp':150, 'maxCurr':2.0, 'maxResVolt':5, 'maxRes':13,
                    'maxSuppCurrVolt':5, 'maxSuppCurr':2, 'thermBeta':3380, 'thermR25':10, 'outputToggle':1, 'filterHz':1, 'period':16666667,
                    'constCurr':False, 'maxErrorLen':100 }
 # Attempt to load last used settings
@@ -73,46 +74,18 @@ Error_Sample_Time = []
 
 ##### Functions ############################
 
-# LCD clear screen
-def lcd_clr(i2c_bus):
-    # Lock the i2c bus
-    while not i2c_bus.try_lock():
-        pass
-    try:
-        i2c_bus.writeto(lcd_addr, bytes([0x7C, 0x2D]))  # clear screen
-        time.sleep(1. / 1000.)  # 1ms in between writes
-    finally:
-        i2c_bus.unlock()
-
-
 # Writing a string to the LCD
-def lcd_str(i2c_bus, outs, clear=True):
-    # Lock the i2c bus
-    while not i2c_bus.try_lock():
-        pass
-    try:
-        if clear: i2c_bus.writeto(lcd_addr, bytes([0x7C, 0x2D]))  # clear screen
+def lcd_str(device, outs, clear=True):
+    with device as lcd:
+        if clear: lcd.write(bytes([0x7C, 0x2D]))
         time.sleep(1. / 1000.)  # 1ms in between writes
-        i2c_bus.writeto(lcd_addr, bytes([ord(i) for i in list(outs)]))
-    finally:
-        i2c_bus.unlock()
-
-
-# Writing a bytelist to the LCD
-def i2c_bytes(i2c_bus, outb, addr):
-    # Lock the i2c bus
-    while not i2c_bus.try_lock():
-        pass
-    try:
-        i2c_bus.writeto(addr, bytes(outb))
+        lcd.write(bytes([ord(i) for i in list(outs)]))
         time.sleep(1./1000.)
-    finally:
-        i2c_bus.unlock()
 
 
 # Run automatically when an MQTT message is recieved
 def do_command(client, topic, message):
-    #lcd_str(i2c_bus, message)
+    #lcd_str(lcd, message)
     
     jc = json.loads(message)
     
@@ -120,7 +93,7 @@ def do_command(client, topic, message):
         client.publish("pico/feeds/ack", "PONG")
     elif jc['command'] == "settemp":
         defaultSettings['setTemp'] = math.floor(jc['temp'] * TemperatureDetents) / TemperatureDetents
-        I_Signal = defaultSettings['setCurrent'] * defaultSettings['setCurrent'] * defaultSettings['loadResist']
+        I_Signal = 0 #defaultSettings['setCurrent'] * defaultSettings['setCurrent'] * defaultSettings['loadResist']
         defaultSettings['constCurr'] = False
         saveSettings()
     elif jc['command'] == "setcurr":
@@ -152,10 +125,10 @@ def saveSettings():
 
 # i2c bus and lcd init, show splash
 i2c_bus = I2C(i2c_scl, i2c_sda)
-lcd_str(i2c_bus, "PID Temp Control V0.01")
+lcd = I2CDevice(i2c_bus, lcd_addr)
+lcd_str(lcd, "PID Temp Control V0.01")
 # lcd_bytes(i2c_bus, [0x0A]) # Sets text as splash
-time.sleep(1)
-lcd_clr(i2c_bus)
+time.sleep(0.5)
 
 # DAC and ADC setup
 dac = adafruit_mcp4725.MCP4725(i2c_bus, address=dac_addr)
@@ -211,22 +184,23 @@ except AssertionError: # no cable
 # Display IP if everything ok
 space = ''.join([" " for i in range(8)])
 if conn:
-    lcd_str(i2c_bus, f"INET OK {space}{eth.pretty_ip(eth.ip_address)}")
+    lcd_str(lcd, f"INET OK {space}{eth.pretty_ip(eth.ip_address)}")
 elif ethi:
-    lcd_str(i2c_bus, "No Broker!")
+    lcd_str(lcd, "No Broker!")
 else:
-    lcd_str(i2c_bus, "No eth!")
-time.sleep(0.5)
+    lcd_str(lcd, "No eth!")
+time.sleep(0.8)
 
 if loaded:
-    lcd_str(i2c_bus, "Loaded Last Settings")
+    lcd_str(lcd, "Loaded Last Settings")
 else:
-    lcd_str(i2c_bus, "Didn't load last settings")
+    lcd_str(lcd, "Didn't load last settings")
 time.sleep(0.5)
 
 counter = 0
 Bad_Frame_Counter = 0
 updateLcd = 1
+Last_Temperature = -999
 t_last = time.monotonic_ns()
 t_conn = time.monotonic_ns()
 t_frame = time.monotonic_ns()
@@ -238,7 +212,7 @@ while True:
     t_delta = t_curr - t_last
     frame_duration = t_curr - t_frame
     
-    if t_delta > 50e8 and conn:  # 5 sec
+    if t_delta > 5e8 and conn:  # 5 sec
         try: # I think this throws socket.timeout error
             mqtt_client.loop(timeout=0.01) # polling for commands
             mqtt_client.publish('pico/feeds/state', json.dumps({"temp" :Actual_Temperature, "curr":Control_Signal_Amps, "state":defaultSettings }))
@@ -319,12 +293,24 @@ while True:
         else: # PID stuff goes here
             P_Signal = defaultSettings['Kc'] * Error_Signal
             I_Signal += (defaultSettings['Kc'] / defaultSettings['Ti']) * Error_Signal * frame_duration
+            
+            # Integral clamping/anti-windup
+            if I_Signal > defaultSettings['I_max']:
+                I_Signal = defaultSettings['I_max']
+            elif I_Signal < -1*defaultSettings['I_max']:
+                I_Signal = -1*defaultSettings['I_max']
+            
+            if not (Last_Temperature > -998):
+                D_Signal = -(defaultSettings['Kc'] * defaultSettings['Td']) * (Actual_Temperature - Last_Temperature) / frame_duration
+            else:
+                D_Signal = 0
 
-            Control_Signal_Watts = P_Signal + I_Signal
+            Control_Signal_Watts = P_Signal + I_Signal + D_Signal
             if (Control_Signal_Watts < 0):
                 Control_Signal_Watts = 0
 
             Control_Signal_Amps = math.sqrt(Control_Signal_Watts / defaultSettings['loadResist'])
+            Raw_amps = Control_Signal_Amps
 
             if (Control_Signal_Amps > defaultSettings['maxCurr']):
                 Control_Signal_Amps = defaultSettings['maxCurr']
@@ -344,7 +330,7 @@ while True:
             if (Bad_Frame_Counter > 200):
                 Bad_Frame_Counter = 0
                 defaultSettings['outputToggle'] = 0
-                lcd_str(i2c_bus, "Current Error!  Output disabled.")
+                lcd_str(lcd, "Current Error!  Output disabled.")
                 updateLcd = 0
                 dac.value = 0
                 Control_Signal_Amps = 0
@@ -365,21 +351,22 @@ while True:
 
 
         # update LCD
-        if t_curr - t_lcd > 10e8 and updateLcd: #update once per second
+        if t_curr - t_lcd > 2.5e8 and updateLcd: #update once per second
             space = ''.join([" " for i in range(3)])
             tog = 1 if defaultSettings['outputToggle'] else 0
-            #lcd_str(i2c_bus, f"Temp: {actResVolt} {tog}Curr: {Supply_Current_Voltage:05.2f}")
-            lcd_str(i2c_bus, f"Temp: {Actual_Temperature:06.2f}{space}{tog}Curr: {Control_Signal_Amps:05.2f}")
+            #lcd_str(lcd, f"Temp: {actResVolt} {tog}Curr: {Supply_Current_Voltage:05.2f}")
+            #lcd_str(lcd, f"Temp: {Actual_Temperature:06.2f}{space}{tog}Curr: {Control_Signal_Amps:05.2f}")
+            lcd_str(lcd, f"Temp: {Actual_Temperature:06.2f}{space}{tog}Raw {Raw_amps:5.2f}")
             if not conn and not ethi :
-                lcd_str(i2c_bus, "   NC", clear=False) # no connection / no cable
+                lcd_str(lcd, "   NC", clear=False) # no connection / no cable
             elif not conn and ethi:
-                lcd_str(i2c_bus, "   NB", clear=False) # no broker
+                lcd_str(lcd, "   NB", clear=False) # no broker
                 
             t_lcd = t_curr
             led.value = not led.value
 
         
-        
+        Last_Temperature = Actual_Temperature
         t_frame = time.monotonic_ns()
         
 
