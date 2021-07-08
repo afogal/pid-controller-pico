@@ -51,7 +51,7 @@ cs = digitalio.DigitalInOut(SPI1_CSn)
 spi_bus = busio.SPI(SPI1_SCK, MOSI=SPI1_TX, MISO=SPI1_RX)
 
 # Default settings (see README)
-defaultSettings = {'setCurrent':0, 'setTemp' : 33, 'Kc': 16, 'Ti':1000000000000, 'Td':0, 'I_max':4, 'loadResist':1, 'maxTemp':150, 'maxCurr':2.0, 'maxResVolt':5, 'maxRes':13,
+defaultSettings = {'setCurrent':0, 'setTemp' : 30, 'Kc': 16, 'Ti':100000000, 'Td':0, 'I_max':2, 'loadResist':1, 'maxTemp':150, 'maxCurr':2.0, 'maxResVolt':5, 'maxRes':13,
                    'maxSuppCurrVolt':5, 'maxSuppCurr':2, 'thermBeta':3380, 'thermR25':10, 'outputToggle':1, 'filterHz':1, 'period':16666667,
                    'constCurr':False, 'maxErrorLen':100 }
 # Attempt to load last used settings
@@ -356,7 +356,7 @@ while True:
             tog = 1 if defaultSettings['outputToggle'] else 0
             #lcd_str(lcd, f"Temp: {actResVolt} {tog}Curr: {Supply_Current_Voltage:05.2f}")
             #lcd_str(lcd, f"Temp: {Actual_Temperature:06.2f}{space}{tog}Curr: {Control_Signal_Amps:05.2f}")
-            lcd_str(lcd, f"Temp: {Actual_Temperature:06.2f}{space}{tog}Raw {Raw_amps:5.2f}")
+            lcd_str(lcd, f"Temp: {Actual_Temperature:06.2f}{space}{tog}Raw{Raw_amps:5.2f} I{I_Signal:5.2f}")
             if not conn and not ethi :
                 lcd_str(lcd, "   NC", clear=False) # no connection / no cable
             elif not conn and ethi:
