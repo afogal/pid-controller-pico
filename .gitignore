@@ -130,6 +130,6 @@ dmypy.json
 
 *.swp
 .idea/
-server/*.csv
+server/*.csv*
 mosquitto.db
 server/mqtt_log.txt
