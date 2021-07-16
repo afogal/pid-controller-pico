@@ -51,8 +51,8 @@ cs = digitalio.DigitalInOut(SPI1_CSn)
 spi_bus = busio.SPI(SPI1_SCK, MOSI=SPI1_TX, MISO=SPI1_RX)
 
 # Default settings (see README)
-defaultSettings = {'setCurrent':0, 'setTemp' : 30, 'Kc': 16, 'Ti':100000000, 'Td':0, 'I_max':2, 'loadResist':1, 'maxTemp':150, 'maxCurr':2.0, 'maxResVolt':5, 'maxRes':13,
-                   'maxSuppCurrVolt':5, 'maxSuppCurr':2, 'thermBeta':3380, 'thermR25':10, 'outputToggle':1, 'filterHz':1, 'period':16666667,
+defaultSettings = {'setCurrent':0, 'setTemp' : 30, 'Kc': 6.401, 'Ti':321.56, 'Td':0, 'I_max':0, 'loadResist':1, 'maxTemp':150, 'maxCurr':2.0, 'maxResVolt':5, 'maxRes':13,
+                   'maxSuppCurrVolt':5, 'maxSuppCurr':2, 'thermBeta':3380, 'thermR25':10, 'outputToggle':1, 'filterHz':1, 'period':0.016666667,
                    'constCurr':False, 'maxErrorLen':100, 'freqAnalysis':False }
 # Attempt to load last used settings
 try:
@@ -211,7 +211,7 @@ while True:
     # time variables
     t_curr = time.monotonic_ns()
     t_delta = t_curr - t_last
-    frame_duration = t_curr - t_frame
+    frame_duration = (t_curr - t_frame) / 1e9
     
     if t_delta > 5e8 and conn:  # 5 sec
         try: # I think this throws socket.timeout error
@@ -314,10 +314,11 @@ while True:
             I_Signal += (defaultSettings['Kc'] / defaultSettings['Ti']) * Error_Signal * frame_duration
             
             # Integral clamping/anti-windup
-            if I_Signal > defaultSettings['I_max']:
-                I_Signal = defaultSettings['I_max']
-            elif I_Signal < -1*defaultSettings['I_max']:
-                I_Signal = -1*defaultSettings['I_max']
+            if defaultSettings['I_max'] > 0:
+                if I_Signal > defaultSettings['I_max']:
+                    I_Signal = defaultSettings['I_max']
+                elif I_Signal < -1*defaultSettings['I_max']:
+                    I_Signal = -1*defaultSettings['I_max']
             
             if not (Last_Temperature > -998):
                 D_Signal = -(defaultSettings['Kc'] * defaultSettings['Td']) * (Actual_Temperature - Last_Temperature) / frame_duration
@@ -375,7 +376,7 @@ while True:
             tog = 1 if defaultSettings['outputToggle'] else 0
             #lcd_str(lcd, f"Temp: {actResVolt} {tog}Curr: {Supply_Current_Voltage:05.2f}")
             lcd_str(lcd, f"Temp: {Actual_Temperature:06.2f}{space}{tog}Curr: {Control_Signal_Amps:05.2f}")
-            #lcd_str(lcd, f"Temp: {Actual_Temperature:06.2f}{space}{tog}Raw{Raw_amps:5.2f} I{I_Signal:5.2f}")
+            #lcd_str(lcd, f"Temp: {Actual_Temperature:06.2f}{space}{tog}Raw {Raw_amps:5.2f}")# I{I_Signal:5.2f}")
             if not conn and not ethi :
                 lcd_str(lcd, "   NC", clear=False) # no connection / no cable
             elif not conn and ethi:
