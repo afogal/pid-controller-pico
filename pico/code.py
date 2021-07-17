@@ -51,9 +51,9 @@ cs = digitalio.DigitalInOut(SPI1_CSn)
 spi_bus = busio.SPI(SPI1_SCK, MOSI=SPI1_TX, MISO=SPI1_RX)
 
 # Default settings (see README)
-defaultSettings = {'setCurrent':0, 'setTemp' : 30, 'Kc': 16, 'Ti':100000000, 'Td':0, 'I_max':2, 'loadResist':1, 'maxTemp':150, 'maxCurr':2.0, 'maxResVolt':5, 'maxRes':13,
-                   'maxSuppCurrVolt':5, 'maxSuppCurr':2, 'thermBeta':3380, 'thermR25':10, 'outputToggle':1, 'filterHz':1, 'period':16666667,
-                   'constCurr':False, 'maxErrorLen':100 }
+defaultSettings = {'setCurrent':0, 'setTemp' : 30, 'Kc': 6.401, 'Ti':321.56, 'Td':0, 'I_max':0, 'loadResist':1, 'maxTemp':150, 'maxCurr':2.0, 'maxResVolt':5, 'maxRes':13,
+                   'maxSuppCurrVolt':5, 'maxSuppCurr':2, 'thermBeta':3380, 'thermR25':10, 'outputToggle':1, 'filterHz':1, 'period':0.016666667,
+                   'constCurr':False, 'maxErrorLen':100, 'freqAnalysis':False }
 # Attempt to load last used settings
 try:
     with open('settings.json', 'r') as settings_file:
@@ -197,6 +197,7 @@ else:
     lcd_str(lcd, "Didn't load last settings")
 time.sleep(0.5)
 
+first = True
 counter = 0
 Bad_Frame_Counter = 0
 updateLcd = 1
@@ -210,11 +211,11 @@ while True:
     # time variables
     t_curr = time.monotonic_ns()
     t_delta = t_curr - t_last
-    frame_duration = t_curr - t_frame
+    frame_duration = (t_curr - t_frame) / 1e9
     
     if t_delta > 5e8 and conn:  # 5 sec
         try: # I think this throws socket.timeout error
-            mqtt_client.loop(timeout=0.01) # polling for commands
+            mqtt_client.loop(timeout=0.001) # polling for commands
             mqtt_client.publish('pico/feeds/state', json.dumps({"temp" :Actual_Temperature, "curr":Control_Signal_Amps, "state":defaultSettings }))
             conn = True
             ethi = True
@@ -290,15 +291,34 @@ while True:
 
         if defaultSettings['constCurr']:
             Control_Signal_Amps = defaultSettings['setCurrent']
+        elif defaultSettings['freqAnalysis']:
+            if first:
+                fs = [1e-5, 2.5e-4, 5e-4, 1e-4, 5e-3, 1e-3, 2e-2, 1e-2, 2e-1, 3e-1, 4e-1, 5e-1]
+                fs.reverse()
+                ws = list(map(lambda x: 2*math.pi*x, fs))
+                target_times = list(map(lambda x: 2/x + 60, fs))
+                cnt = 0
+                a = 0.25
+                first = False
+            if time.monotonic_ns()/1e9 > sum(target_times[:cnt+1]):
+                cnt += 1
+            if cnt >= len(fs)-1:
+                a = 0.1
+                cnt = 0
+                target_times = list(map(lambda x: x+time.monotonic_ns(), target_times))
+                
+            w = ws[cnt]
+            Control_Signal_Amps = 1.7 + a * math.cos( w * time.monotonic_ns()/1e9)
         else: # PID stuff goes here
             P_Signal = defaultSettings['Kc'] * Error_Signal
             I_Signal += (defaultSettings['Kc'] / defaultSettings['Ti']) * Error_Signal * frame_duration
             
             # Integral clamping/anti-windup
-            if I_Signal > defaultSettings['I_max']:
-                I_Signal = defaultSettings['I_max']
-            elif I_Signal < -1*defaultSettings['I_max']:
-                I_Signal = -1*defaultSettings['I_max']
+            if defaultSettings['I_max'] > 0:
+                if I_Signal > defaultSettings['I_max']:
+                    I_Signal = defaultSettings['I_max']
+                elif I_Signal < -1*defaultSettings['I_max']:
+                    I_Signal = -1*defaultSettings['I_max']
             
             if not (Last_Temperature > -998):
                 D_Signal = -(defaultSettings['Kc'] * defaultSettings['Td']) * (Actual_Temperature - Last_Temperature) / frame_duration
@@ -355,8 +375,8 @@ while True:
             space = ''.join([" " for i in range(3)])
             tog = 1 if defaultSettings['outputToggle'] else 0
             #lcd_str(lcd, f"Temp: {actResVolt} {tog}Curr: {Supply_Current_Voltage:05.2f}")
-            #lcd_str(lcd, f"Temp: {Actual_Temperature:06.2f}{space}{tog}Curr: {Control_Signal_Amps:05.2f}")
-            lcd_str(lcd, f"Temp: {Actual_Temperature:06.2f}{space}{tog}Raw{Raw_amps:5.2f} I{I_Signal:5.2f}")
+            lcd_str(lcd, f"Temp: {Actual_Temperature:06.2f}{space}{tog}Curr: {Control_Signal_Amps:05.2f}")
+            #lcd_str(lcd, f"Temp: {Actual_Temperature:06.2f}{space}{tog}Raw {Raw_amps:5.2f}")# I{I_Signal:5.2f}")
             if not conn and not ethi :
                 lcd_str(lcd, "   NC", clear=False) # no connection / no cable
             elif not conn and ethi:
