@@ -57,11 +57,13 @@ In order to program the pico, all you have to do is copy the code.py to the pico
 The meaning of each entry in the defaultSettings dicitonary is as follows:
 * `'setCurrent':0` (Amps) the amount of current to output
 * `'setTemp':25` (deg C) the current set temperature to hold
-* `'Kc': 10` (W/deg C)
-* `'Ti':100` (sec)
-* `'loadResist':5` (ohm) resistance of the load resistor
+* `'Kc': 6.0787` (W/deg C) PID proportional gain
+* `'Ti':330` (sec) PID integration time
+* `'Td':0` (sec) PID derivative time (zero gives only a PI control)
+* `'I_max':4` (W^2) Maximum value of the I term in PID (best left at max power, 0 -> disabled) 
+* `'loadResist':1` (ohm) resistance of the load resistor
 * `'maxTemp':150` (deg C) max temperature of the load
-* `'maxCurr':2.5` (Amps) max current the load can withstand
+* `'maxCurr':2.0` (Amps) max current the load can withstand
 * `'maxResVolt':5` (Volt) voltage indicating max resistance
 * `'maxRes':13` (kohms) max resistance at max voltage
 * `'maxSuppCurrVolt':5` (Volt) the voltage signal that will cause max current from the supply
@@ -70,7 +72,18 @@ The meaning of each entry in the defaultSettings dicitonary is as follows:
 * `'thermR25':10` (kohm) resistance of thermistor at 25 degC
 * `'outputToggle':0` are we outputting?
 * `'filterHz':1` (Hz) block freqencies higher than this
-* `'period':16666667` (nsec) how often to update PID
+* `'period':0.016666667` (sec) how often to update PID
+* `'constCurr':False` (bool) are we running constant current or PID temperature?
+* `'maxErrorLen':100` (int) how many terms to keep around for error
+* `'freqAnalysis':False` (bool) outputs current following a cosine wave, only really used for a specific sort of PID tuning
+* `'reportMode':'mean'` (one of 'mean', 'latest') report the temperature and current as either the mean of all values since the last or just the latest values
+* `'user':'pico'` MQTT username for the PID controller
+* `'password':'password'` MQTT password for the PID controller
+* `'serverIP':"192.168.0.100"` IP address of the MQTT broker
+* `'mqttDelay':5e8` (nsec) how often to poll for mqtt messages and send the current state
+* `'mqttReconn":300e8` (nsec) how often to attempt reconnecting to MQTT (is slow, don't attempt often)
+* `'lcdRefresh':2.5e8` (nsec) how often to refresh the lcd screen
+
 
 ## User Interface:
 
@@ -78,7 +91,15 @@ The meaning of each entry in the defaultSettings dicitonary is as follows:
 
 ## Control UI:
 
-Coming soon!
+[control ui](docs/command_ui.png)
+
+This is the remote command window, featuring set temperature command, set current command, and a toggle output command. For the indicator next to toggle out, red means no current being outputted, and green means current being outputted. The "Command Acked" indicator shows whether or not the pico has recieved and replied to whatever the latest command was, red meaning no, green meaning yes. 
+
+In the bottom right is a text window which updates when acks and messages are recieved, and it will also display errors from trying to type text into the set temp and set curr boxes. 
+
+Finally, in the top is two graphs, they can be panned and zoomed at will, and update with the latest and greatest data from the pico. 
+
+The ui has some configurable parameters, which can be found near the top of [server.py](server/server.py), which include what username the server is, what username the pico is, a password for the mqtt broker, and the IP of the mqtt broker. The broker and command need not be run on the same device, but they can be. 
 
 
 ## Notes:
@@ -86,4 +107,4 @@ Coming soon!
 * printing (which prints to serial) puts a lot of delay (and sometimes doesnt work at all)
 * you might have to reconfigure the IP and gatway of the pico depending on network architecture. Run `ipconfig` on windows or `ip addr` on linux to find the relevant details
 * the MQTT client keep\_alive is (for some really dumb reason) used as the default pingresp timeout, which means you either flood the broker with ping requests or you wait forever (with no PID processing in the meantime) if the broker ever goes down. I thought 5 seconds would be a fair tradeoff. Even worse: keep\_alive is used as the default recieving timeout, so we can't set it extremely low either. I thought it would be better not to edit and recompile the adafruit library to remedy this, but if desired it would be quite easy.
-* for whatever reason, *sometimes* the ADC reads anything greater than 4.1V as exactly 4.1V, I think this is a referencing issue, but it doesn't always come up. This corresponds to a current of 1.64A.
+* for whatever reason, *sometimes* the ADC reads anything greater than 4.1V as exactly 4.1V, I think this is a referencing issue, but it doesn't always come up. This corresponds to a current of 1.64A. 
