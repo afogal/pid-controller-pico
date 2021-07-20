@@ -14,6 +14,8 @@ class MainWindow(QtWidgets.QMainWindow):
         super(MainWindow, self).__init__(*args, **kwargs)
         
         self.defaultSettings = {'user':"server", 'password':'password', 'remoteIP':"192.168.0.100", "remoteUser":"pico"}
+        
+        self.dataFile = f"data/data_{dt.datetime.now().strftime('%Y-%m-%d_%H%M%S')}.csv"
 
         # main window
         self.setWindowTitle("PID Command")
@@ -242,7 +244,7 @@ class MainWindow(QtWidgets.QMainWindow):
             state = json.loads(payload)
 
 
-            with open("data.csv", 'a') as outfile:
+            with open(self.dataFile, 'a') as outfile:
                 outfile.write(f"{time.time()},{state['curr']},{state['temp']},{state['state']['setCurrent']},{state['state']['setTemp']}\n")
 
             self.therm_data.append(state['temp'])
