@@ -91,7 +91,7 @@ The meaning of each entry in the defaultSettings dicitonary is as follows:
 
 ## Control UI:
 
-[control ui](docs/command_ui.png)
+![control ui](docs/command_ui.png)
 
 This is the remote command window, featuring set temperature command, set current command, and a toggle output command. For the indicator next to toggle out, red means no current being outputted, and green means current being outputted. The "Command Acked" indicator shows whether or not the pico has recieved and replied to whatever the latest command was, red meaning no, green meaning yes. 
 
