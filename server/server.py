@@ -12,6 +12,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def __init__(self, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
+        
+        self.defaultSettings = {'user':"server", 'password':'password', 'remoteIP':"192.168.0.100", "remoteUser":"pico"}
 
         # main window
         self.setWindowTitle("PID Command")
@@ -198,7 +200,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # init mqtt, subscribe to relevant feeds
     def init_mqtt(self):
-        self.client = MQTTClient("server", "password", service_host="192.168.0.100", secure=False, port=5005)
+        self.client = MQTTClient(self.defaultSettings["user"], self.defaultSettings["password"], service_host=self.defaultSettings["remoteIP"], secure=False, port=5005)
         self.client.on_message = self.recv
         try:
             self.client.connect()
@@ -208,9 +210,9 @@ class MainWindow(QtWidgets.QMainWindow):
             return -1
 
         time.sleep(0.5)
-        self.client.subscribe("state", feed_user='pico')
-        self.client.subscribe("warnings", feed_user='pico')
-        self.client.subscribe("ack", feed_user='pico')
+        self.client.subscribe("state", feed_user=self.defaultSettings["remoteUser"])
+        self.client.subscribe("warnings", feed_user=self.defaultSettings["remoteUser"])
+        self.client.subscribe("ack", feed_user=self.defaultSettings["remoteUser"])
         time.sleep(0.5)
 
         # this causees a race condition with the textbox that causes a segfault
