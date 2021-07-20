@@ -37,7 +37,6 @@ IP_ADDRESS = (192, 168, 0, 111)
 SUBNET_MASK = (255, 255, 255, 0)
 GATEWAY_ADDRESS = (192, 168, 0, 1)
 DNS_SERVER = (8, 8, 8, 8)
-REMOTE_IP = "192.168.0.100"
 REMOTE_PORT = 5005
 
 # Some pin setup
@@ -51,9 +50,10 @@ cs = digitalio.DigitalInOut(SPI1_CSn)
 spi_bus = busio.SPI(SPI1_SCK, MOSI=SPI1_TX, MISO=SPI1_RX)
 
 # Default settings (see README)
-defaultSettings = {'setCurrent':0, 'setTemp' : 30, 'Kc': 6.401, 'Ti':321.56, 'Td':0, 'I_max':0, 'loadResist':1, 'maxTemp':150, 'maxCurr':2.0, 'maxResVolt':5, 'maxRes':13,
+defaultSettings = {'setCurrent':0, 'setTemp' : 28, 'Kc': 6.7087, 'Ti':330, 'Td':0, 'I_max':4, 'loadResist':1, 'maxTemp':150, 'maxCurr':2.0, 'maxResVolt':5, 'maxRes':13,
                    'maxSuppCurrVolt':5, 'maxSuppCurr':2, 'thermBeta':3380, 'thermR25':10, 'outputToggle':1, 'filterHz':1, 'period':0.016666667,
-                   'constCurr':False, 'maxErrorLen':100, 'freqAnalysis':False }
+                   'constCurr':False, 'maxErrorLen':100, 'freqAnalysis':False, 'reportMode':'mean', 'user':'pico', 'password':'password',
+                   'serverIP':"192.168.0.100", 'mqttDelay':5e8, 'mqttReconn':300e8, 'lcdRefresh':2.5e8  }
 # Attempt to load last used settings
 try:
     with open('settings.json', 'r') as settings_file:
@@ -90,7 +90,7 @@ def do_command(client, topic, message):
     jc = json.loads(message)
     
     if jc['command'] == "ping":
-        client.publish("pico/feeds/ack", "PONG")
+        client.publish(f"{defaultSettings['user']}/feeds/ack", "PONG")
     elif jc['command'] == "settemp":
         defaultSettings['setTemp'] = math.floor(jc['temp'] * TemperatureDetents) / TemperatureDetents
         I_Signal = 0 #defaultSettings['setCurrent'] * defaultSettings['setCurrent'] * defaultSettings['loadResist']
@@ -105,7 +105,7 @@ def do_command(client, topic, message):
         saveSettings()
         
     # probably do something and then conditionally ack?
-    client.publish("pico/feeds/ack", "ACK")
+    client.publish(f"{defaultSettings['user']}/feeds/ack", "ACK")
 
 def Kohm_to_Celsius (Thermistor_Resistance):
     if (Thermistor_Resistance <= 0):
@@ -120,13 +120,27 @@ def saveSettings():
             json.dump(defaultSettings, outfile)
     except:
         pass
+    
+# for some reason mean and sum arent provided by math
+def mean(l):
+    s = 0
+    c = 0
+    
+    if not (len(l)>0):
+        return 0
+    
+    for i in l:
+        s += i
+        c += 1
+        
+    return s/c
 
 ##### Setup ############################
 
 # i2c bus and lcd init, show splash
 i2c_bus = I2C(i2c_scl, i2c_sda)
 lcd = I2CDevice(i2c_bus, lcd_addr)
-lcd_str(lcd, "PID Temp Control V0.01")
+lcd_str(lcd, "PID Temp Control V1.0")
 # lcd_bytes(i2c_bus, [0x0A]) # Sets text as splash
 time.sleep(0.5)
 
@@ -135,8 +149,8 @@ dac = adafruit_mcp4725.MCP4725(i2c_bus, address=dac_addr)
 dac.value = 0
 time.sleep(0.01)
 ads = ADS.ADS1115(i2c_bus, address=adc1_addr)
-curr_adc = AnalogIn(ads, ADS.P3)
-therm_adc = AnalogIn(ads, ADS.P0)
+curr_adc = AnalogIn(ads, ADS.P2, ADS.P3)
+therm_adc = AnalogIn(ads, ADS.P0, ADS.P1)
 #ads.mode = Mode.CONTINUOUS # this breaks everything
 ads.data_rate = 860 # Max rate is 860
 
@@ -164,7 +178,7 @@ socket.set_interface(eth)
 #eth._debug = True
 MQTT.set_socket(socket, eth)
 time.sleep(1)
-mqtt_client = MQTT.MQTT("192.168.0.100", username='pico', password='password', is_ssl=False, port=5005, keep_alive=5)
+mqtt_client = MQTT.MQTT(defaultSettings['serverIP'], username=defaultSettings['user'], password=defaultSettings['password'], is_ssl=False, port=5005, keep_alive=5)
 mqtt_client.on_message = do_command
 
 try:
@@ -202,6 +216,8 @@ counter = 0
 Bad_Frame_Counter = 0
 updateLcd = 1
 Last_Temperature = -999
+report_temps = []
+report_currs = []
 t_last = time.monotonic_ns()
 t_conn = time.monotonic_ns()
 t_frame = time.monotonic_ns()
@@ -213,10 +229,19 @@ while True:
     t_delta = t_curr - t_last
     frame_duration = (t_curr - t_frame) / 1e9
     
-    if t_delta > 5e8 and conn:  # 5 sec
+    if t_delta > defaultSettings['mqttDelay'] and conn:  # 5 sec
         try: # I think this throws socket.timeout error
             mqtt_client.loop(timeout=0.001) # polling for commands
-            mqtt_client.publish('pico/feeds/state', json.dumps({"temp" :Actual_Temperature, "curr":Control_Signal_Amps, "state":defaultSettings }))
+            
+            if defaultSettings['reportMode'] == 'latest':
+                mqtt_client.publish(f"{defaultSettings['user']}/feeds/state", json.dumps({"temp" :Actual_Temperature, "curr":Control_Signal_Amps, "state":defaultSettings }))
+                report_temps = []
+                report_currs = []
+            elif defaultSettings['reportMode'] == 'mean':
+                if len(report_temps) > 0: 
+                    mqtt_client.publish(f"{defaultSettings['user']}/feeds/state", json.dumps({"temp" :mean(report_temps), "curr":mean(report_currs), "state":defaultSettings }))
+                    report_temps = []
+                    report_currs = []
             conn = True
             ethi = True
             t_conn = t_curr
@@ -232,7 +257,7 @@ while True:
         t_last = t_curr
         
     # retries connection every 30s, can take a very long time
-    if t_curr - t_conn > 300e8 and not conn: # 30s
+    if t_curr - t_conn > defaultSettings['mqttReconn'] and not conn: # 30s
         try:
             mqtt_client.connect(clean_session=False)
             time.sleep(0.01)
@@ -251,9 +276,9 @@ while True:
             t_conn = t_curr
             
     if frame_duration >= defaultSettings['period']:
-        # read inputs:
-        Supply_Current_Voltage = curr_adc.voltage
-        actResVolt = therm_adc.voltage
+        # read inputs: (PCB has the differentials backwards...)
+        Supply_Current_Voltage = -curr_adc.voltage
+        actResVolt = -therm_adc.voltage
 
         # Get current state
         #Actual_Resistance = defaultSettings['maxRes'] * actResVolt / defaultSettings['maxResVolt']
@@ -264,7 +289,7 @@ while True:
         #else:
         #    Actual_Temperature = Kohm_to_Celsius(Actual_Resistance)
         
-        # for lm335 in the little box
+        # for lm335 in the test cell + little box
         Actual_Temperature = actResVolt * 100
 
         Supply_Current = defaultSettings['maxSuppCurr'] * Supply_Current_Voltage / defaultSettings['maxSuppCurrVolt']
@@ -368,10 +393,13 @@ while True:
             if raw_out < 0: raw_out = 0
             dac.value = math.floor(raw_out)
             time.sleep(1./1000.)
+            
+        report_temps.append(Actual_Temperature)
+        report_currs.append(Control_Signal_Amps)
 
 
         # update LCD
-        if t_curr - t_lcd > 2.5e8 and updateLcd: #update once per second
+        if t_curr - t_lcd > defaultSettings['lcdRefresh'] and updateLcd: #update once per second
             space = ''.join([" " for i in range(3)])
             tog = 1 if defaultSettings['outputToggle'] else 0
             #lcd_str(lcd, f"Temp: {actResVolt} {tog}Curr: {Supply_Current_Voltage:05.2f}")
