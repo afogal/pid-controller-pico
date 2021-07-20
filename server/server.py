@@ -155,6 +155,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ack_time = time.time()
         self.outputToggle = 1
         self.init_mqtt()
+        
+        # make sure connected
+        # runs a function every time the timer goes off
+        self.conn_timer = QtCore.QTimer()
+        self.conn_timer.setInterval(10000) # 10s
+        self.conn_timer.timeout.connect(self.check_connect)
+        self.conn_timer.start()
+
 
         # lists for the plot
         self.therm_data = []
@@ -178,6 +186,15 @@ class MainWindow(QtWidgets.QMainWindow):
             pen = pg.mkPen(color=color, width=4)
 
         return graph.plot(x, y, name=name, pen=pen)
+        
+    def check_connect(self):
+    
+        self.conn = self.client._connected
+    
+        if not self.conn:
+            self.append_line("Disconnected from MQTT!, retrying automatically")
+            self.init_mqtt()
+            
 
     # init mqtt, subscribe to relevant feeds
     def init_mqtt(self):
@@ -185,6 +202,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.client.on_message = self.recv
         try:
             self.client.connect()
+            self.conn = True
         except:
             self.conn = False
             return -1
@@ -247,6 +265,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def append_line(self, line):
         new = '\n' + line
         self.text.insertPlainText(new)
+        self.text.moveCursor(self.text.textCursor().Down)#scrolls down
 
     # polling function run on timer
     def poll(self):
