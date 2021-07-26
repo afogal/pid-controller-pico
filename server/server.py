@@ -212,14 +212,19 @@ class MainWindow(QtWidgets.QMainWindow):
             return -1
 
         time.sleep(0.5)
-        self.client.subscribe("state", feed_user=self.defaultSettings["remoteUser"])
-        self.client.subscribe("warnings", feed_user=self.defaultSettings["remoteUser"])
-        self.client.subscribe("ack", feed_user=self.defaultSettings["remoteUser"])
+        self.client.subscribe("state", feed_user=self.defaultSettings["remoteUser"], qos=1)
+        self.client.subscribe("warnings", feed_user=self.defaultSettings["remoteUser"], qos=1)
+        self.client.subscribe("ack", feed_user=self.defaultSettings["remoteUser"], qos=1)
         time.sleep(0.5)
 
         # this causees a race condition with the textbox that causes a segfault
         # kinda annoying but that's threading for you
         #self.client.loop_background()
+
+        try:
+            self.timer.stop()
+        except:
+            pass
 
         # runs a function every time the timer goes off
         self.timer = QtCore.QTimer()
