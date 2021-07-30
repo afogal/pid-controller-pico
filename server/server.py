@@ -13,7 +13,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
         
-        self.defaultSettings = {'user':"server", 'password':'password', 'remoteIP':"192.168.0.100", "remoteUser":"pico"}
+        self.defaultSettings = {'user':"server", 'password':'password', 'remoteIP':"192.168.1.103", "remoteUser":"pico"}
         
         self.dataFile = f"data/data_{dt.datetime.now().strftime('%Y-%m-%d_%H%M%S')}.csv"
 

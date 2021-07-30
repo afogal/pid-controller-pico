@@ -33,9 +33,9 @@ W5500_RSTn = board.GP15
 
 # eth config
 MY_MAC = (0x00, 0x01, 0x02, 0x03, 0x04, 0x05)
-IP_ADDRESS = (192, 168, 0, 111)
+IP_ADDRESS = (192, 168, 1, 111)
 SUBNET_MASK = (255, 255, 255, 0)
-GATEWAY_ADDRESS = (192, 168, 0, 1)
+GATEWAY_ADDRESS = (192, 168, 1, 1)
 DNS_SERVER = (8, 8, 8, 8)
 REMOTE_PORT = 5005
 
@@ -53,7 +53,7 @@ spi_bus = busio.SPI(SPI1_SCK, MOSI=SPI1_TX, MISO=SPI1_RX)
 defaultSettings = {'setCurrent':0, 'setTemp' : 28, 'Kc': 6.7087, 'Ti':330, 'Td':0, 'I_max':4, 'loadResist':1, 'maxTemp':150, 'maxCurr':2.0, 'maxResVolt':5, 'maxRes':13,
                    'maxSuppCurrVolt':5, 'maxSuppCurr':2, 'thermBeta':3380, 'thermR25':10, 'outputToggle':1, 'filterHz':1, 'period':0.016666667,
                    'constCurr':False, 'maxErrorLen':100, 'freqAnalysis':False, 'reportMode':'mean', 'user':'pico', 'password':'password',
-                   'serverIP':"192.168.0.100", 'mqttDelay':5e8, 'mqttReconn':300e8, 'lcdRefresh':2.5e8  }
+                   'serverIP':"192.168.1.103", 'mqttDelay':5e8, 'mqttReconn':300e8, 'lcdRefresh':2.5e8  }
 # Attempt to load last used settings
 try:
     with open('settings.json', 'r') as settings_file:
@@ -121,7 +121,6 @@ def saveSettings():
     except:
         pass
     
-# for some reason mean and sum arent provided by math
 def mean(l):
     s = 0
     c = 0
@@ -138,8 +137,8 @@ def mean(l):
 ##### Setup ############################
 
 # i2c bus and lcd init, show splash
-i2c_bus = I2C(i2c_scl, i2c_sda)
-lcd = I2CDevice(i2c_bus, lcd_addr)
+i2c_bus = I2C(i2c_scl, i2c_sda, frequency=100000)
+lcd = I2CDevice(i2c_bus, lcd_addr)#, probe=False)
 lcd_str(lcd, "PID Temp Control V1.0")
 # lcd_bytes(i2c_bus, [0x0A]) # Sets text as splash
 time.sleep(0.5)
@@ -289,7 +288,7 @@ while True:
         #else:
         #    Actual_Temperature = Kohm_to_Celsius(Actual_Resistance)
         
-        # for lm335 in the test cell + little box
+        # for lm335 in the little box
         Actual_Temperature = actResVolt * 100
 
         Supply_Current = defaultSettings['maxSuppCurr'] * Supply_Current_Voltage / defaultSettings['maxSuppCurrVolt']
@@ -393,6 +392,10 @@ while True:
             if raw_out < 0: raw_out = 0
             dac.value = math.floor(raw_out)
             time.sleep(1./1000.)
+            
+        if len(report_temps) > defaultSettings["maxErrorLen"]:
+            del report_temps[0]
+            del report_currs[0]
             
         report_temps.append(Actual_Temperature)
         report_currs.append(Control_Signal_Amps)
