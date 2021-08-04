@@ -101,6 +101,9 @@ def do_command(client, topic, message):
         defaultSettings['constCurr'] = True
         saveSettings()
     elif jc['command'] == "toggleOutput":
+        if updateLcd == 0 and defaultSettings['outputToggle'] == 0:
+            updateLcd = 1 # clears current error and allows continued operation without rebooting
+
         defaultSettings['outputToggle'] = not defaultSettings['outputToggle'] #jc['toggle']
         saveSettings()
         
