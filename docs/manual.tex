@@ -4,17 +4,10 @@
 \usepackage{indentfirst}
 \usepackage{float}
 \setlength{\parindent}{5ex}
-
+\renewcommand{\arraystretch}{1.2}
 
 \usepackage{geometry}
-\usepackage{booktabs}
- \geometry{
- letterpaper,
- left=1.2in,
- top=1in,
- right=1.2in,
- bottom=1.1in,
- }
+
 
 \begin{document}
 
@@ -23,7 +16,7 @@
         \vspace*{1cm}
 
         \Huge
-        \textbf{PID Controller Manual}
+        \textbf{Control Theory \& PID}
 
         \vspace{0.5cm}
         \LARGE
@@ -37,7 +30,7 @@
         \Large
         For Professor Jim Martin\\
         University of Waterloo\\
-        August 2021
+        August 13th, 2021
 
     \end{center}
 \end{titlepage}
@@ -47,253 +40,167 @@
 \newpage
 
 \section{Introduction}
-Welcome! This is an instruction manual for the PID Control system I worked on for Professor Jim Martin, it was designed to replace the previous system, and this manual is meant to replace the manual that came with that system. Because of this, significant portions of information were carried over more or less verbatim.
 
-\subsection{Purpose of this Manual}
-This document is meant to offer all the information required to use and understand this PID Control system. If any problems arise in the system, or any modifications need to be made, this document is meant to be a one stop shop for information.
+Hello! This document is meant to be a brief introduction to the topic of Control Theory and specifically PID process control. This document will make constant referecne to PID temperature control, as not only is it a physically intuitive system, but it is also quite important in the real world. 
 
-The operation section will detail daily use with the controller. It will detail hooking up the controller, the onboard interface, and the remote control interface. The hardware section will detail the PCB, microcontroller, and each component. The software section will detail how various parts of the code work, including internet connectivity, the MQTT protocol, how the persistent settings work, initialization and the main loop, integral windup control, and error control and the "Current Error" message. The building, debugging, and modification section will contain information about programming the controller, acquiring data, the PCB and schematic, and other debugging information. Finally, there will be an appendix about control theory and the control theoretical justification for this system.
+Essentially, control theory is exactly what it sounds like: a theoretical background for the automatic control of some system (often referred to as a "plant" or "process"). In order to control the system automatically, some sort of feedback is commonly used. A {\it Closed Loop } system is one which measures its own output to determine what input should be used (feedbacking). Sometimes, the terminology {\it Open Loop} will be used as well, this is simply the negation of the closed loop system: there is no feedback control. This usually implies that the input is held constant, although in general one could apply any arbitrary function as input. 
 
-Hopefully the information you need will be contained in these pages!
+To set the stage: we have some process we wish to control, some means of measuring it, and some input to control it. The goal of a closed loop system is to stabilize the process at some set point by controlling the input in some fashion related to the output of the system. The controllable property of a system is known as the {\it Process Variable} $PV$, which we wish to hold at the set point, $SP$. We can define the error as simply: $e=SP-PV$, and this is the input to our controller, which implements some control function, and outputs the {\it control signal} (control output) $CO=f(e)=f(SP-PV)$. 
 
-\subsection{Purpose of the Controller}
-This controller was originally designed to manage a rubidium vapour cell heater and current source for experiments on Rydberg Atoms. The temperature of the vapour in the cell was required to be maintained above ambient temperatures, up to $100^{\circ} C$ depending on the experiment. Such a system is required due to background fluctuations and drift in ambient temperature. The long time constants involved make an analogue circuit impractical$^{[1]}$, hence a digital system was used.
+For example, say we have some block of metal we wish to hold at a constant temperature. The set point would be the temperature we wish to hold it at, say, $SP=30^{\circ} C$. The process variable here is the measured temperature of the block, which will change over time: $PV=T_{block}(t)$. Then, we have some controller which will take the error in temperature: $e=SP-PV$ and produce the control signal which will control a heater. 
 
-Despite the specific motivation, this PID controller is generic and customizable such that it can be used to manage any suitable process. For example, it could be potentially used to control a vacuum chamber bake-out oven.
+One quick note on terminology, when we write "controller", we mean any arbitrary control process. This may or may not involve a digital controller or a computer, it could even be analogue circuity! For example, tunable lasers are controlled with an analogue feedback loop. For the example of a heater, it is often better to use a digital controller (e.g., a microcontroller like the Arduino), due to the long times involved with heating. 
+
+\section{Control Theory of Feedback Loops}
+\subsection{"P" Control}
+The most simple form of feedback control is {\it Proportional} control, in which the control signal  is directly proportional to the error term:
+
+$$ CO = k_P e = k_P ( SP-PV) $$
+
+Assuming $k_P>0$ (in the example of a heater, this is generally true, but there may be cause to use a negative value depending on the system!), the control signal is positive when the process variable is below the set point. This makes sense for the heater system: when the temperature of the block (process variable) is below the set temperature (set point), apply some positive work to the heater in order to produce more heat and thereby increase the process variable to the set point. The units of $k_P$ depend on what exactly is meant to be controlled in this situation. We may wish to control a motor, for which the process variable might have units of degrees (aligning a shaft with a set angle), it could be watts for controlling the motor (delivering power to reach a set speed), and in the case of a heater, it could be watts (delivering power to the heater) or even simply amperes (or volts). For the case of the heater, the units of $k_P$ might be $W/^{\circ} C$.
+
+It is rather easy to see the downfalls of such a simple control process, especially for the example system of a heater: when the process variable (temperature) attains the set point, the control signal becomes zero! For a simple argument of why this would not work for a heater, remember that the subject we wish to heat will be radiating heat at all times as well, so we would never reach the set point if the control signal goes to zero as we get close. An easy solution for this is to add a constant term, but the constant term would depend on the material properties of the system, and the whole point was to make less work for ourselves!
+
+\subsection{"PI" Control}
+A slightly more sophisticated form of control would be {\it Proportional (and) Integral} control. This involves adding an integral of the error:
+
+$$ CO = k_P \left (e(t) + \frac{1}{T_I} \int_0^t e(\tau) d\tau \right)$$
+
+The addition of the integral term adds a sort of "momentum" or "memory" to the controller. When the process variable is below the set point, the integral term is growing according to the magnitude of the error, and then it will begin to diminish and settle once the process variable exceeds the set point. The integral term may never reach zero though, it will settle to whatever constant value is required by the system to maintain the set point. As for the units of $T_I$, they would be simply the units we are measuring time in. A physical intuition for $T_I$ (often called the repeat time or integration time) is that it is the amount of time required for the integral term to match the contribution of the proportional term.
+
+For heater control, this is really all that is needed, but it is not too hard to imagine a system where overshooting the set point is unacceptable, or where we cannot afford to wait for the system to settle after reaching the set point. So how do we manage this?
+
+\subsection{"PID" Control}
+The "fully featured" control paradigm: {\it Proportional, Integral, Derivative} control. Very powerful and very robust, this paradigm can be used to control all matter of processes. As the name suggests:
+
+$$ CO =  k_P \left( e(t) + \frac{1}{T_I} \int_0^t e(\tau) d\tau + T_D \frac{de}{dt} \right)$$
+
+The addition of the derivative term allows the controller to know how fast the process variable is tending toward the set point and adjust accordingly in order to not overshoot. This would be useful say, for the case of a motor that must turn to a specific angle and no further. The constant $T_D$ is also in units of time. 
+
+\subsection{Properties of PID}
+As a quick note, one can pick and choose any of the three PID terms to control the process. As mentioned previously, PI control is sufficient for the case of a heater system. 
+\\ \\
+One must be careful with their choice of coefficients for PID control though, as PID is a feedback algorithm, it is susceptible to things like feedback loops and oscillation (think mic into an amplified speaker feedbacking). In our heater example, the heat takes time to go from the heater to the thermistor being used to measure and provide feedback. This may not sound like a big problem, but it creates the opportunity for disturbances to build into feedback loops. The phase lag incurred as the heat wave travels from the heater is frequency dependant, and due to the integration term, the system will not settle right away. At low frequencies, the process variable tracks with the control signal, but at higher frequencies, significant phase lag is incurred, resulting in maximum control signal occurring in tandem with maximum change in the process variable and so the process variable will oscillate and not come to equilibrium.
+
+The ratio of the control signal to the process variable amplitude (often expressed as a function of frequency) is referred to as the {\it loop gain} of the process. If we were using only P control, the loop gain would be constant and equal to $k_P$. Under PI control, the gain goes to infinity as frequency goes to zero. The gain is unitless, as the units of the process variable are the inverse of the units of the control signal. This product, often expressed in complex form as a function of frequency, is called the {\it transfer function} of the system. We can model and then analyze this equation in order to mathematically guarantee the stability of our system and the robustness of the control.
+
+\section{Modelling and Analyzing PI Heater Control}
+As mentioned in the previous section, we wish to model and analyze the transfer function of the system (the product of the control equation and the process equation) in order to guarantee the stability of our system. 
+
+\subsection{A Quick Aside on the Laplace Transform}
+The Laplace transform comes up a lot in Control Theory, it appears when describing linear time invariant systems and the definition of transfer functions. Linear systems are linear in the sense that: $c_1 f(a)+c_2 f(b) = f(c_1 a + c_2 b)$ (in practise this implies that the process transfer function is not dependant on operating point, and behaves the same everywhere), time invariant systems are systems where the output does not depend on when an input was applied (i.e. we can set $t=0$ and do time shifts arbitrarily). For example, most electrical circuits can be approximated by linear and time invariant models. The intuition and physical reasoning for using the Laplace transform in this case is quite hard to appreciate. One can think of the Laplace transform as arising from the idea of impulse responses of the system, or even just that it is convenient for learning properties of the system. For example, the function space that is the output of the Laplace transform allows us to define a norm, and therefore a notion of "closeness" between transfer functions. This is useful to define the robustness of a system: a control scheme that works not just for the subject model, but for "nearby" models as well, can be considered robust. 
+
+Whether one chooses to think of the Laplace transform as a convenient piece of mathematics or as a physically meaningful process, it cannot be ignored in the analysis of systems, particularly since many systems can be approximated as linear and time invariant, and perturbation analyses on these systems are useful as well. To at least convince the reader of its usefulness, any linear and time invariant system can be expressed as:
+
+$$ y(t) = \int_{-\infty}^{\infty} h(t-\tau)u(\tau)d\tau $$
+
+For which the Laplace transform is:
+
+$$ Y(s) = H(s)U(s) $$
+
+simply multiplication. The function $h(t)$ being the impulse response, $H(s)$ being the transfer function, $u(t)$ being the input to the control, $y(t)$ being the output of the control. That is to say, the system is entirely characterized by either the transfer function or the impulse response. We also generally take $s=i\omega$ ($\omega$ being frequency), so the transfer function is a function of frequency only. For more see Olivi, Martine in the reference section.
 
 
-\section{Operation}
-This section will detail day to day operation of the controller, including initial setup.
+I will also quickly note that the Z transform is equivalent to the Laplace transform acting on discrete time systems.
 
-\subsection{Connecting the Device}
-The controller has three BNC and one ethernet connector on it (Version 1 boards also will have an exposed micro usb, which is for programming the microcontroller and power). The ethernet will carry power via Power over Ethernet (PoE), which will power the unit. The three BNC connectors are split up by input and output: there is one BNC output that carries the control signal to the current source (labelled CurrOut BNC on the PCB), and there are two BNC inputs, one that carries the thermistor signal (ThermIn BNC on the PCB) and one that carries the current monitor signal (CurrIn BNC on the PCB).
+\subsection{Modelling PID Control}
+The transfer function of the PID control scheme is achieved by taking the Laplace transform of the control signal equation:
+
+$$ H(s) = k_P \left( 1 + \frac{1}{T_I s} + T_d s \right) = k_P \left( 1 + \frac{1}{i \omega T_I } + i \omega T_D  \right) $$
+
+From here on, we will take $T_D = 0$ (PI control only). Our model is therefore: 
+
+$$ H(\omega) = k_P + \frac{k_P}{i\omega T_I} $$
+
+Where the constants are as defined in the PID control scheme.
+
+\subsection{Modelling a Heater System}
+Our model for the heater system will consist of two parts: a first order lag, modelled by a low pass RC filter (first term), and a time delay modelled simply by a phase lag (second term). Altogether, this gives us:
+
+$$ G(\omega) = \frac{K}{1+i\omega T_{1}} e^{-i \omega T_d} $$
+
+The constant $K$ (not to be confused with $k_P$) is the loop gain, $T_1$ is first order time lag, and $T_d$ is the time delay. The time delay models the time it takes the heat wave to travel from the heater to the thermistor making the measurements, and the low pass filter models the properties of heat in a medium. 
+
+\subsection{System Model and Stability}
+The full model transfer function of our system is now:
+
+$$ H(\omega)G(\omega) = \left( k_P + \frac{k_P}{i \omega T_I}\right)\left( \frac{K}{1+i\omega T_{1}} e^{-i \omega T_d} \right)$$
+
+Now, we can begin to assess the stability of this system using the Nyquist Criterion. Essentially, the Nyquist criterion states that, in order for a system to be stable, it must have a gain of less than unity at a phase of $180^{\circ}$ (and odd multiples, e.g. $540^{\circ},900^{\circ},$ etc.). Graphically, that means that the function must not encircle the point $-1+0i$ in the complex plane. There is more discussion of the related mathematics in Wescott, Tim.
+
+Only one problem, the coefficients in the model are undetermined! For this we have the Ziegler-Nichols design approach.
+
+\subsubsection{Fitting the Heater Model and Determining PID Coefficients}
+Essentially, fitting the model is accomplished via graphical construction, but first, we need data. The data in question is called the {\it open loop step response} of the process. This involves setting the input to the process to a constant value, waiting for the process variable to settle, and then increasing the input to some higher value and waiting for it to settle once more. The graph will ideally look like this:
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=15cm]{controllerConnections.jpg}
-    \caption{ Connectors on the back of the Controller }
-    \label{fig:controllerConnections}
+    \includegraphics[width=8cm]{openLoopStep.png}
+    \caption{ Showing how the coefficients of the model may be determined from step response. Note that it is not important that it be a unit step response, appropriate scaling may be applied instead. Figure taken from Leigh, J.R. figure 11.1.}
+    \label{fig:openLoopStep}
 \end{figure}
+
+In reality, it can be quite a bit messier:
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=15cm]{currentSourceConnections.jpg}
-    \caption{ Connectors on the front of the current source }
-    \label{fig:currentSourceConnections}
+    \includegraphics[width=18cm]{realOpenLoopStep.png}
+    \caption{ Actually determining coefficients from data. Note that it is verging on impossible to directly use the graph, and digging through the data points will almost certainly be necessary. }
+    \label{fig:realOpenLoopStep}
 \end{figure}
 
-
-The current source has several connections on the front: "Control In" is a 0-5V control signal, with 5V being the max current; "Curren [sic] Monitor" (the top BNC) is, similarly, a 0-5V signal, this time for reading back to make sure the current matches the expectation; the two unlabelled BNCs are, I belive, feedback and measurement thermistor signal lines, but I have not tested this directly; finally, the D-SUB is to connect to the Rubidium cell, and it has the following pinout:
+Given the above values extracted from the data, the following PID coefficients are recommended for stability and optimal control:
 
 \begin{table}[H]
-    \centering
-    \begin{tabular}{ll}
-        \toprule
-        \textbf{Pins} & \textbf{Function} \\
-        \midrule
-        1,2 & Heater Gnd \\
-        3,4 & Main Heater +ve \\
-        5,6 & Secondary Heater +ve \\
-        7 & Measurement Thermistor +ve \\
-        8 & Feedback Thermistor +ve \\
-        9 &  Thermistor Gnd \\
-        \bottomrule
-    \end{tabular}
-    \caption{Pinout of Current Source D-SUB}
-    \label{tab:sourcePinout}
+\centering
+\begin{tabular}{llll}
+     & $k_P$ & $T_I$ & $T_D$  \\[0.3cm] \hline
+ P   & $\frac{T_1}{kT_d}$  & -  & - \\[0.3cm]
+ PI  & $\frac{0.9 T_1}{KT_d}$  & $3.3T_d$ &  -\\[0.3cm]
+ PID & $\frac{1.2 T_1}{KT_d}$  & $2T_d$  & $0.5T_d$
+\end{tabular}
+\caption{Table adapted from Leigh, J.R. table 11.1.}
 \end{table}
 
-The D-SUB connects to the Rubidium vapour cell heater, but it is also possible to use external thermistors, which can be calibrated via code (see the last section).
-
-\subsubsection{Test Cell Setup}
-
-The test cell setup differs from the experiment setup slightly. The test cell is a large aluminium block with a heater and several different measurement devices. These thermal measurement devices are connected to a small box with an XLR connector and several BNCs. The XLR provides power via the following pinout:
+\subsubsection{Assessing Stability}
+Now that all the coefficients are determined, we can plot the transfer function as a function of frequency in the complex plane. The easiest way to do this is to expand the complex exponentials as a sum of cosines and sines, collect into the form $a(\omega)+ib(\omega)$ and then plot it as a parametric curve, $(a(\omega),b(\omega))$. Having done that gets the following:
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=6cm]{XLRPinout.png}
-    \caption{ XLR power pinout convention (used in lab only!!) }
-    \label{fig:XLRPinout}
+    \includegraphics[width=12cm]{nyquistPlot.png}
+    \caption{ A plot showing the function as a parametric curve over frequencies $\omega=0...10$ and a unit circle. Note that the curve tends to $-\infty$ on the $y$ axis, which corresponds to the integral having infinite gain (an integrator always contributing a phase of $90^{\circ}$) at zero frequency. Note that the curve does not encircle $-1+0i$ as required for stability. The gain margin here is $3.5$dB and the phase margin is $20^{\circ}$. }
+    \label{fig:nyquistPlot}
 \end{figure}
 
-Each BNC connector corresponds to a different measurement device, I used the LM355 for simplicity, as it is internally calibrated to have a voltage equal to the temperature divided by 100. The most accurate measurement comes from the yellow plug, which is a thermistor, but that requires external measurement circuitry.
+There are two factors involved with assessing the stability in relation to the Nyquist criterion: gain margin and phase margin. The gain margin (in dB) is a notion of how far away from oscillation the system will be when the frequency is such that the phase lag is exactly $180^{\circ}$, which is expressed as:
 
-So, to hook up the controller to the test cell setup, connect the current control and current monitor BNCs to the current source as normal, connect the custom D-SUB cable to the current source, and wire the black and red wires to the black and red heater terminals on the back of the box. I used an external power supply set to +15V and -15V connected to an XLR plug to power the box.
+$$ g = 20 \log_{10} \left( -Re(H(\omega^*))\right) $$
+
+In order to assess gain margin, we must first find the frequency corresponding to the closest root to the point $-1+0i$ and then plug that frequency, $\omega^*$, into the real part of the transfer function, and then apply the rest of the above formula.
+
+The phase margin is the angle between the $-x$ axis and the point at which the function intersects the unit circle. In other words, it is the difference in phase between the critical point and where the function is magnitude unity (remember that the function must have less than unity gain at phase $180^{\circ}$). In order to assess phase margin, one must first find the frequency at which the magnitude of the transfer function is 1, i.e., $|H(\omega^*)|=1$ (please excuse my abuse of notation from reusing $\omega^*$ for this, they are not otherwise related).  After that, the transfer function should be put in the form $|H|e^{i\phi}$, and then the phase margin will be $180^{\circ} - \phi$. 
+
+\section{In Practise}
+If we have done everything up until now correctly, we will expect that the controller will do a few easily identifiable things. First, when we set the set temperature, the measured temperature should approach and overshoot this, and then exhibit first order decay until settling on the set temperature. Second, this should result in some approximately constant (over short periods of time, since over long periods of time the ambient temperature and therefore the level of current required to maintain a certain temperature, will change) amount of current being delivered.
+
+The closed step response should therefore look like this:
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=10cm]{testCellBoxFront.jpg}
-    \caption{ Test Cell Box Front }
-    \label{fig:testCellBoxFront}
+    \includegraphics[width=16cm]{closedLoopStep.png}
+    \caption{ Forgive my not labelling the axes, the left axis is temperature in Celsius, and the right is current in amperes. The bottom axis is time in UTC. }
+    \label{fig:closedLoopStep}
 \end{figure}
 
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=10cm]{testCellBoxBack.jpg}
-    \caption{ Test Cell Box Back }
-    \label{fig:testCellBoxBack}
-\end{figure}
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=10cm]{testCellSetup.jpg}
-    \caption{ Test Cell }
-    \label{fig:testCellSetup}
-\end{figure}
-
-\subsection{Controller Interface}
-
-The interface on the actual controller is quite straight forward:
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=11cm]{screen.jpg}
-    \caption{ Controller UI Layout }
-    \label{fig:screen}
-\end{figure}
-
-All parameters are changed via the remote interface.
-
-\subsection{Remote Interface}
-
-The remote interface is where all the magic occurs! It looks like this:
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=12cm]{command_ui.png}
-    \caption{ Remote Command UI }
-    \label{fig:command_ui}
-\end{figure}
-
-The functions are all quite straight forward: to change the set temperature, type in a number and press the "Set Temp" button (note that no checking is done on the number you put in, if it fails to convert there will be a message in the box); to change the set current, type a number in the box and push the "Set Curr" button (note that there is no checking on this either, please only enter values 0-2 or whatever the controller is configured for); in order to stop the current outputting, click "Toggle Out", the indicator will be green when it is outputting, and red when it is not. Every time a command is performed, the "Command Acked" indicator will turn red, and it will turn green again if the controller successfully performs the command (and internet is working).
-
-There are also graphs of the temperature measured and current being outputted for convenience.
-
-\section{Hardware}
-
-This section will detail each hardware component of the controller.
-
-\subsection{Raspberry Pi Pico}
-
-The Raspberry Pi Pico is the brains of the operation: the microcontroller unit (MCU). It runs the adafruit distribution "CircuitPython" as well as related adafruit libraries. It is well suited to this task due to the ease of use in programming (you can plug it in and be programmed via usb), $I^{2}C$ functionality, low cost, computing power, and wide variety of libraries for programming. Additionally, we expect that it will be produced for years to come in case replacements are required.
-
-Digikey part number: SC0915
-
-\subsubsection{$I^2 C$}
-
-The MCU controls the DAC, ADC, and LCD via the $I^2 C$ protocol. This was done because it requires only two connections (in addition to power), and is relatively easy to debug using a tool like the Beagle I2C spy device. Note that the ethernet is {\it not} controlled via $I^2 C$, but is rather controlled using SPI. Note that both SPI and $I^2 C$ are available on the header pins on the PCB.
-
-Note that $I^2 C$ lines are "open drain", which means they are connected to VCC (3.3V in this case) via pullup resistors. The two $I^2 C$ lines are SDA (data) and SCL (clock). The MCU acts as the "master" device, and must initiate any exchange. Note also that long $I^2 C$ lines can cause excessive capacitance, which may cause a communication breakdown. Furthermore, it is possible to hard-lock the $I^2 C$ bus if the MCU resets at the wrong moment during communication. In this case, a power cycle is required.
-
-\subsection{DAC}
-
-This DAC is responsible for sending the current control signal to the current source. The DAC has 12 bit resolution and is wired to produce a signal from 0-5V, at 12bits this is (ideally) steps of 0.0012V. Another advantage of this DAC board is that the actual DAC chip is quite common (MCP4725), and adafruit has a library to control it easily. The maximum current this chip is rated for is 24mA, which is sufficient to signal the current source.
-
-Digikey part number: BOB-12918
-
-\subsection{ADC}
-
-The ADC is responsible for reading the thermistor and current monitor signals. The ADC has 4x16 bit single ended channels, or 2x16 bit differential channels. The ADC is wired up for differential measurements in this case, with the signals being compared to "Analogue Ground", which is connected to the DAC ground and the BNC shields. This ADC is capable of measuring 0-5V signals, and has a programmable gain factor (currently set to 1). This ADC is capable of sampling at 860 Hz, which is more than sufficient for this application.
-
-Digikey part number: 1085
-
-\subsection{Ethernet}
-
-We desired to have this controller be controlled via the internet, while not sacrificing speed as one might by using a fully fledged Raspberry Pi SoC. Therefore, we added a peripheral ethernet jack. This ethernet jack/chip combo board allows the MCU to connect to remote sources via the SPI protocol. To control this, another adafruit library was used. Note that this chip is technically capable of engaging with DNS, but it is currently setup only for a static IP, which may need to be changed for future applications.
-
-Digikey part number: WIZ850IO
-
-\subsection{LCD}
-
-The LCD is a 2 line by 16 character display running on the open source SerLCD toolkit. The LCD has contrast and brightness control if desired. The LCD is only compatible with 3.3V $I^2 C$ logic, and can only be powered from 3.3V as well. This LCD was selected due to having the SparkFun QWIIC cable, which makes it easy to move and test.
-
-\subsection{PCB and Box}
-
-This PCB was designed in-house using KiCAD, the files are available for it on Github. This was done partly as a learning experience, partly for robustness, and partly for generality. The PCB is meant to be mounted to a box via the BNCs. The PCB also eliminates any errors that could come from a misconnection or miswiring of the components.
-
-\subsubsection{Version 1}
-
-Version 1 of the PCB was intended to be powered directly from the micro USB on the pico, which was changed to PoE for version 3. Version 1 had two major faults: the ADC differential channels were wired backwards (so all positive voltages read negative), and the digital ground was not connected to the MCU. The first of the two faults was taken care of in the code, and the second required a wire to be soldered between any of the ADC, DAC, or pin header grounds to either the MCU or QWIIC adapter ground.
-
-\subsubsection{Version 2 and 3}
-
-Version 2 of the PCB fixed the above faults, and was never produced. Version 3 incorporated those fixes and the board was rearranged to make it more suitable for PoE and a single ethernet jack on the box to be used. As of the time of writing, version 3 has not been produced yet either.
-
-\subsubsection{Box}
-
-The Box we chose was a Hammond Mfg. 1590D box, due to it's wide availability and size being approximately correct for the PCB as it was designed. A drawing of where the holes should be is available on Github. The drawing was done in a free trial of QCAD. There is only one version of the box, which corresponds to PCB V3.
-
-Digikey part number: 1590DGY
-
-\section{Software}
-This section will cover the details of the software used in the controller. For a brief overview, the major sections of the code are as follows: first there are imports; then there are constants and variable definitions and pin setup; then there is the default settings dictionary and an attempt to load old settings; then there is PID variable definitions; then there is a function definition block; then the major setup block including $I^2 C$, DAC, ADC, ethernet, and MQTT setup and connectivity; then some loop variable initialization; and finally the main loop. Please refer to the following sections for a more in depth exploration.
-
-\subsection{Internet}
-Internet connectivity is achieved through the adafruit \verb|WIZNET5K| library, which manages the SPI bus, and really, all of the heavy lifting. It is technically possible to use DHCP for dynamic IP allocation, but at the time of writing there was a bug in the library for this feature, and really, a static IP is better for this application anyways.
-
-First, the SPI pins are defined, and the various internet related parameters are defined, eg MAC address, IP address, Gateway and Subnet addresses, and the DNS server. These parameters may need to be modified to suit whatever network this controller is deployed on. Next, the SPI bus is defined, which is handled by the adafruit \verb|busio| library. The ethernet controller is initialized via an initial reset, and then the library is initialized, and the configuration parameters are set. The \verb|socket| library is also initialized to use the newly defined ethernet connection. At this point, the rest of the connectivity is handled via MQTT and the relevant adafruit library, although low level socket calls can be made now as well.
-
-\subsection{MQTT}
-MQTT stands for "Message Queuing Telemetry Transport", and it is the protocol used for communication between the controller and the remote computer. It was chosen due to the very small amount of data transmitted, and the relative ease of use that comes with preexisting adafruit libraries (as opposed to, say, making low level socket calls and dealing directly with TCP). Additionally, the asymmetric nature of MQTT made the most sense for this application. From the MQTT commitee website:
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=16cm]{mqttArch.png}
-    \caption{ The MQTT paradigm }
-    \label{fig:testCellSetup}
-\end{figure}
-
-This asymmetry is not strict though, a client can also be a publisher, and a publisher can also be a client. In this way, the Pico publishes measurements and subscribes to commands, the remote computer publishes commands, and subscribes to measurements. The use of a broker in this application allows any published messages to be rebroadcasted to a device when it comes back online, the relevant terminology for that is Quality of Service Level (QoS). In our particular application, commands and measurements are broadcasted as json packets, which allows convenient labelled and avoids confusion down the road.
-
-To pick up where we left off in the previous section, after establishing internet connectivity, the adafruit \verb|mini_mqtt| library is used to establish an MQTT context. The relevant interface and socket are passed to the library, and the initialization is performed. Additionally, a function is provided to the instance to be called when messages are received. At this point, the actual connection is attempted (the \verb|clean_session=False| parameter allows faster reconnections and rebroadcasting of any missed messages), and a subscription to the commands feed is established with QoS level 1 (rebroadcasting). If successful, boolean variables are set to define what parts succeeded/failed. 
-
-In the main loop, whenever a suitable amount of time has elapsed (defined by \verb|defaultSettings['mqttDelay']| ), the client asks for any new messages from the broker with the shortest timeout possible. Then, the client publishes the current state. There is some error handling here to attempt reconnection should the internet fail in some way.
-
-If there are any new messages, the \verb|do_command| function is called, which parses the json and performs the appropriate action, and gives a suitable response.
-
-\subsection{Persistent Settings}
-The controller is capable of having persistent settings, that is, if it were to lose power, it would boot up in the last configuration. This comes with one small caveat, being that if the MCU can write to flash, a connected computer cannot. This is the purpose of the switch on the controller, one position is to enable programming the MCU, and the other position enables persistent settings. In order to save the settings, the \verb|defaultSettings| dictionary is saved as a json file.
-
-One must be careful of these persistent settings, as the networking configuration is a part of them! If one needs to change the IP or something, it may be better to simply delete the persistent settings file and change the value in the code file.
-
-\subsection{Initialization and Main Loop}
-There is a lot of initialization so buckle up! First is the I2C bus, which is passed the SCL and SDA pins as well as a frequency. The frequency is not super important, although higher frequencies often mean difficulties in communication when there are more devices and longer wires involved. Then, the lcd is initialized using a generic adafruit library and a string is printed to it. 
-
-The next initialization is the DAC, for which there is an adafruit library that handles the hard stuff. This is the same story for the ADC. It is worth noting that here the differential pairs are defined, and they cannot be arbitrary pairs or in an arbitrary order. The purpose of using differential pairs is to have a separate analogue ground, which is defined by the BNC shields. This analogue ground is used for the DAC as well. The continuous mode on the ADC is unusable with multiple ADCs in use, so we keep it in the default (single) mode, which causes the ADC to hang on read until there is a fresh value. For this reason, the max sampling rate is used as well.
-
-The main loop involves 4 main parts. Each part runs after a certain amount of time has elapsed since the last time it was run. Please be careful with the timing, the time is handled in nanoseconds. Fortunately, one of the upsides of using python on a MCU is that it supports arbitrarily large integers, so the time will never overflow! The first portion is the MQTT send and receive block, which receives any commands and sends the current state. The second block is the MQTT reconnect block. The third block is the main PID loop, which entails:
-
+\newpage
+\section{References and Further Reading}
 \begin{enumerate}
-    \item Reading the thermistor and current voltages and convert to temperature
-    \item Save current error and time, exponentially weight recent errors (and trim if there are too many being saved)
-    \item Compute the P, I, and D (currently disabled) signals, clamping the I signal if it is too large, and combining
-    \item Detect if measured current does not match expectation, shut down if this lasts too long
-    \item Write the new signal to the DAC
-    \item Keep track of sampled signals to report an average if desired.
+    \item Jones, Lucas: Practical Implementation of Temperature Control
+    \item Martin, James: Notes on Feedback and Oscillations
+    \item Olivi, Martine: The Laplace transform in control theory \\ https://www-sop.inria.fr/apics/sbpi/LtransformOlivi.pdf
+    \item Forgan, E.M.: On the use of temperature controllers in cryogenics \\ https://doi.org/10.1016/0011-2275(74)90190-8
+    \item Wescott, Tim: Applied Control Theory for Embedded Systems
+    \item Leigh, J.R.: Temperature Measurement and Control
 \end{enumerate}
-
-The final block is for updating the LCD (otherwise the info on it would be constantly changing and very difficult to read). Be very careful not to go over the edge of the LCD in a single write action, it causes the LCD to soft lock, which hard locks the I2C bus, requiring a power cycle. There are some alternate readouts for the LCD available in the code to assist debugging including a voltmeter. 
-
-\subsection{Integral Windup and Clamping}
-There exists a phenomenon in PID control called {\it Integral Windup}, which refers to when the integral term integrates the error abnormally large, usually due to the process becoming disconnected in some way. There are two ways this is handled by the controller right now. The first way is by limiting the magnitude of the integral term, and the second way is by comparing the expected current to the measured current, and stopping if they do not match over a long enough period. This produces the "Current Error!" message on the LCD. This message can be cleared by toggling the output off and on again. Usually, the cause of the current error dialogue is disconnecting either the current output or current input BNCs.
-
-\section{Building, Debugging, and Modification}
-This section will briefly cover making additions or modifications to the hardware of the controller.
-
-\subsection{Adding/Calibrating Thermistors}
-In order to add or calibrate thermistors, one needs the resistance at $25^{\circ}$C and the thermistor beta value. These will need to be updated in the \verb|defaultSettings| dictionary, and if persistent settings are used, then it should be updated there too.
-
-\subsection{Programming and Debugging}
-Programming is, thankfully, really quite simple. Make sure the switch is set such that it allows writing to the flash (the red and blue wires should be connected), and then connect the micro usb on the MCU to a computer. The MCU will show up as a storage device, and you can edit \verb|code.py| right then and there using your preferred editor. I used \verb|thonny| (not the one available in the Ubuntu repos, that one is out of date, download the fresh one directly from their website), which after some trivial setup, allows running code and REPL directly on the MCU itself. This is useful for debugging, because you can then actually see errors when they occur, read outputs directly, and more. 
-
-\subsection{Acquiring Data}
-Acquiring data has also been designed to be easy. The all of the data is sent out to the remote interface, and is simply logged and saved there according to when the remote interface was started. This comes with the somewhat obvious downside that the remote interface should be running for the full data collection period, although intermittent internet connection should not pose difficulties due to the MQTT QoS level. 
-
-Should one desire to have more frequently sampled data points, one can simply decrease the timeout before sending another message, i.e., lower \verb|defaultSettings['mqttDelay']| to the desired period of data collection.
-
-\subsection{PCB and Schematic}
-The PCB and schematic were designed in KiCAD. There is not really an easy way to make modifications without learning the entirety of how to use KiCAD and how PCBs are designed. Very simply, there are two layers to the PCB: front and back. Traces can be put on either layer, and if they touch on the same layer then they are connected. Traces can be connected between layers by vias. The pin spacing is 0.01" or 2.54mm (standard breadboard spacing). 
-
-
 
 \end{document}
