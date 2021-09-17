@@ -180,7 +180,7 @@ socket.set_interface(eth)
 #eth._debug = True
 MQTT.set_socket(socket, eth)
 time.sleep(1)
-mqtt_client = MQTT.MQTT(defaultSettings['serverIP'], username=defaultSettings['user'], password=defaultSettings['password'], is_ssl=False, port=5005, keep_alive=5)
+mqtt_client = MQTT.MQTT(defaultSettings['serverIP'], username=defaultSettings['user'], password=defaultSettings['password'], is_ssl=False, port=REMOTE_PORT, keep_alive=5)
 mqtt_client.on_message = do_command
 
 try:
