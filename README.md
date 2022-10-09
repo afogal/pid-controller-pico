@@ -42,7 +42,7 @@ Files:
 * `adafruit_requests.mpy`
 * `adafruit_mcp4725.mpy`
 
-As for wiring, the ethernet is wired as follows:
+As for wiring, the ethernet is wired as follows (diagram and other documentationshows the ethernet interface as WIZ820io, but the prototype that Alex constructed in Spring 2021 used WIZ850io --- JDDM).
 
 ![eth wiring](docs/eth_wiring.png)
 
